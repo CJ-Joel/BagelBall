@@ -1,12 +1,16 @@
 
 <?php
-// Eventbrite webhook endpoint
-Route::get('/eventbrite/test-log', [\App\Http\Controllers\EventbriteWebhookController::class, 'testLog'])->name('eventbrite.test.log');
-Route::get('/eventbrite/webhook-log', [\App\Http\Controllers\EventbriteWebhookController::class, 'showLog'])->name('eventbrite.webhook.log');
-Route::post('/webhooks/eventbrite', [\App\Http\Controllers\EventbriteWebhookController::class, 'handle'])->name('webhooks.eventbrite');
 
 use Illuminate\Support\Facades\Route;
+
 use Inertia\Inertia;
+
+// Eventbrite test/debug routes (require web middleware for session/cookies)
+Route::get('/eventbrite/test-log', [\App\Http\Controllers\EventbriteWebhookController::class, 'testLog'])->name('eventbrite.test.log');
+Route::get('/eventbrite/webhook-log', [\App\Http\Controllers\EventbriteWebhookController::class, 'showLog'])->name('eventbrite.webhook.log');
+
+// Webhook endpoints (no CSRF, no session needed)
+Route::post('/webhooks/eventbrite', [\App\Http\Controllers\EventbriteWebhookController::class, 'handle'])->name('webhooks.eventbrite')->withoutMiddleware([\App\Http\Middleware\VerifyCsrfToken::class]);
 
 Route::get('/', function () {
     return view('welcome');
@@ -18,4 +22,4 @@ Route::get('/pregames/{pregame}', [\App\Http\Controllers\PreGameController::clas
 Route::get('/pregames/{pregame}/signup', [\App\Http\Controllers\RegistrationController::class, 'create'])->name('pregames.signup');
 Route::post('/pregames/{pregame}/signup', [\App\Http\Controllers\RegistrationController::class, 'store'])->name('pregames.signup.submit');
 Route::get('/checkout/success', [\App\Http\Controllers\CheckoutController::class, 'success'])->name('checkout.success');
-Route::post('/webhooks/stripe', [\App\Http\Controllers\StripeWebhookController::class, 'handle'])->name('webhooks.stripe');
+Route::post('/webhooks/stripe', [\App\Http\Controllers\StripeWebhookController::class, 'handle'])->name('webhooks.stripe')->withoutMiddleware([\App\Http\Middleware\VerifyCsrfToken::class]);
