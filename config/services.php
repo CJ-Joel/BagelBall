@@ -42,8 +42,10 @@ return [
 
         // Eventbrite configuration
         'eventbrite' => [
-            'token' => env('EVENTBRITE_TOKEN'),
-            'organization_id' => env('EVENTBRITE_ORG_ID'),
+            'token' => env('EVENTBRITE_PRIVATE_TOKEN'),
+            'api_key' => env('EVENTBRITE_API_KEY'),
+            'client_secret' => env('EVENTBRITE_CLIENT_SECRET'),
+            'public_token' => env('EVENTBRITE_PUBLIC_TOKEN'),
         ],
 
 ];
