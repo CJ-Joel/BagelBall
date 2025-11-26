@@ -1,7 +1,7 @@
-Route::get('/eventbrite/test-log', [\App\Http\Controllers\EventbriteWebhookController::class, 'testLog'])->name('eventbrite.test.log');
 
 <?php
 // Eventbrite webhook endpoint
+Route::get('/eventbrite/test-log', [\App\Http\Controllers\EventbriteWebhookController::class, 'testLog'])->name('eventbrite.test.log');
 Route::get('/eventbrite/webhook-log', [\App\Http\Controllers\EventbriteWebhookController::class, 'showLog'])->name('eventbrite.webhook.log');
 Route::post('/webhooks/eventbrite', [\App\Http\Controllers\EventbriteWebhookController::class, 'handle'])->name('webhooks.eventbrite');
 
