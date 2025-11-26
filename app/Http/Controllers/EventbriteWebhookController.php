@@ -38,4 +38,11 @@ class EventbriteWebhookController extends Controller
 
         return response()->json(['status' => 'success']);
     }
+
+    // Show the logged webhook payloads
+    public function showLog()
+    {
+        $log = \Illuminate\Support\Facades\Storage::exists('eventbrite_webhook.log') ? \Illuminate\Support\Facades\Storage::get('eventbrite_webhook.log') : '';
+        return view('eventbrite.webhook_log', ['log' => $log]);
+    }
 }
