@@ -14,8 +14,8 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
         then: function () {
-            // Webhook routes with minimal middleware (no CSRF, no sessions)
-            Route::middleware(['throttle:api'])
+            // Webhook routes with NO middleware (no CSRF, no sessions, no throttle)
+            Route::withoutMiddleware(['web', 'api'])
                 ->group(base_path('routes/webhooks.php'));
         },
     )
