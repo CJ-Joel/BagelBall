@@ -13,5 +13,4 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-// Eventbrite webhook endpoint (accessible at /api/webhooks/eventbrite)
-Route::post('/webhooks/eventbrite', [\App\Http\Controllers\EventbriteWebhookController::class, 'handle']);
+// API routes can be added here
