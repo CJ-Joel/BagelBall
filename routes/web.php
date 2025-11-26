@@ -1,8 +1,8 @@
-Route::get('/eventbrite/webhook-log', [\App\Http\Controllers\EventbriteWebhookController::class, 'showLog'])->name('eventbrite.webhook.log');
+
 <?php
 // Eventbrite webhook endpoint
+Route::get('/eventbrite/webhook-log', [\App\Http\Controllers\EventbriteWebhookController::class, 'showLog'])->name('eventbrite.webhook.log');
 Route::post('/webhooks/eventbrite', [\App\Http\Controllers\EventbriteWebhookController::class, 'handle'])->name('webhooks.eventbrite');
-
 
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
