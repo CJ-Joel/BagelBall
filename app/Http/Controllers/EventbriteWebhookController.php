@@ -11,6 +11,9 @@ class EventbriteWebhookController extends Controller
     public function handle(Request $request)
     {
         $payload = $request->all();
+        
+        // Log all webhook calls for debugging
+        \Illuminate\Support\Facades\Log::info('Eventbrite webhook received', ['payload' => $payload]);
 
         // Example: Loop through attendees/tickets in the order
         if (isset($payload['attendees']) && is_array($payload['attendees'])) {
