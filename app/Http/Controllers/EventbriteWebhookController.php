@@ -45,4 +45,11 @@ class EventbriteWebhookController extends Controller
         $log = \Illuminate\Support\Facades\Storage::exists('eventbrite_webhook.log') ? \Illuminate\Support\Facades\Storage::get('eventbrite_webhook.log') : '';
         return view('eventbrite.webhook_log', ['log' => $log]);
     }
+
+    // Temporary test method for webhook logging
+    public function testLog()
+    {
+        \Illuminate\Support\Facades\Storage::append('eventbrite_webhook.log', 'Test log entry: ' . now());
+        return response('Test log entry written.', 200);
+    }
 }
