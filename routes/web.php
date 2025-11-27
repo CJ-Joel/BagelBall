@@ -96,50 +96,81 @@ Route::get('/debug/session-write-test', function() {
 // Debug routes for session diagnostics
 Route::get('/debug/session', function() {
     $sessionId = session()->getId();
-    $visitCount = session()->get('visit_count', 0);
-    $visitCount++;
-    session()->put('visit_count', $visitCount);
+    
+    // Get current visit count BEFORE incrementing
+    $currentVisitCount = session()->get('visit_count', 0);
+    $newVisitCount = $currentVisitCount + 1;
+    
+    // Write new value
+    session()->put('visit_count', $newVisitCount);
     session()->put('timestamp', now()->toDateTimeString());
+    session()->put('_test_marker', 'marker_' . time());
+    
+    \Log::info('SESSION WRITE - Before save', [
+        'session_id' => $sessionId,
+        'current_visit_count_before_put' => $currentVisitCount,
+        'new_visit_count_after_put' => session()->get('visit_count'),
+    ]);
+    
     session()->save();
     
-    // Check if the session was actually written to the database
+    \Log::info('SESSION WRITE - After save', [
+        'session_id' => $sessionId,
+        'visit_count_in_memory' => session()->get('visit_count'),
+    ]);
+    
+    // Check database immediately after save
     $dbSession = DB::table('sessions')->where('id', $sessionId)->first();
     
-    $payload = null;
+    $dbData = null;
     if ($dbSession) {
-        $payload = json_decode($dbSession->payload, true);
+        \Log::info('DB SESSION RAW', [
+            'id' => $dbSession->id,
+            'user_id' => $dbSession->user_id ?? null,
+            'payload_length' => strlen($dbSession->payload),
+            'payload_is_null' => $dbSession->payload === null,
+            'payload_is_empty_string' => $dbSession->payload === '',
+            'payload_first_50_chars' => substr($dbSession->payload, 0, 50),
+            'last_activity' => $dbSession->last_activity,
+        ]);
+        
+        try {
+            $decoded = base64_decode($dbSession->payload);
+            $dbData = unserialize($decoded);
+        } catch (\Exception $e) {
+            \Log::error('Failed to decode session payload', ['error' => $e->getMessage()]);
+        }
     }
     
-    \Log::info('DEBUG SESSION ENDPOINT', [
-        'session_id' => $sessionId,
-        'visit_count_in_memory' => $visitCount,
-        'timestamp' => now()->toDateTimeString(),
-        'db_session_exists' => $dbSession ? 'YES' : 'NO',
-        'db_payload' => $payload ? 'HAS DATA' : 'EMPTY/NULL',
-        'payload_keys' => $payload ? array_keys($payload) : [],
+    // Now read it back in a fresh way
+    $readBackVisitCount = session()->get('visit_count');
+    
+    \Log::info('SESSION READ - After refresh', [
+        'visit_count_read_back' => $readBackVisitCount,
     ]);
     
     return response()->json([
-        'status' => $visitCount > 1 ? 'WORKING ✅' : 'NOT_PERSISTING ❌',
-        'visit_count' => $visitCount,
+        'status' => $readBackVisitCount > 1 ? 'WORKING ✅' : 'NOT_PERSISTING ❌',
+        'visit_count' => $readBackVisitCount,
         'session_id' => $sessionId,
+        'write_info' => [
+            'visit_count_before' => $currentVisitCount,
+            'visit_count_written' => $newVisitCount,
+            'visit_count_read_back' => $readBackVisitCount,
+        ],
         'db_check' => [
-            'session_exists_in_db' => $dbSession ? 'YES' : 'NO ⚠️',
-            'has_data' => $payload ? 'YES' : 'NO ⚠️',
-            'payload_keys' => $payload ? array_keys($payload) : [],
+            'session_exists' => $dbSession ? 'YES' : 'NO',
+            'payload_is_empty' => !$dbSession || !$dbSession->payload ? 'YES' : 'NO',
+            'payload_length' => $dbSession ? strlen($dbSession->payload) : 0,
+            'payload_preview' => $dbSession ? substr($dbSession->payload, 0, 50) : 'N/A',
+            'unserialized_keys' => $dbData ? array_keys($dbData) : [],
+            'visit_count_in_db' => $dbData && isset($dbData['visit_count']) ? $dbData['visit_count'] : 'NOT_FOUND',
         ],
         'config' => [
             'session_driver' => config('session.driver'),
             'session_lifetime' => config('session.lifetime'),
             'cookie_name' => config('session.cookie'),
-            'cookie_secure' => config('session.secure'),
-            'session_regenerate' => config('session.regenerate'),
-        ],
-        'instructions' => [
-            'Refresh 5+ times',
-            'If visit_count increments: Sessions are working ✅',
-            'If visit_count stays at 1 BUT session_exists_in_db=YES: Data not being read back',
-            'If visit_count stays at 1 AND session_exists_in_db=NO: Data not being written',
+            'session_encrypt' => config('session.encrypt'),
         ],
     ], 200, [
         'Cache-Control' => 'no-cache, no-store, must-revalidate',
