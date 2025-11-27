@@ -14,3 +14,5 @@ use Illuminate\Support\Facades\Route;
 
 Route::post('/webhooks/eventbrite', [\App\Http\Controllers\EventbriteWebhookController::class, 'handle'])->name('webhooks.eventbrite');
 Route::post('/webhooks/stripe', [\App\Http\Controllers\StripeWebhookController::class, 'handle'])->name('webhooks.stripe');
+Route::post('/eventbrite/sync/run', [\App\Http\Controllers\EventbriteWebhookController::class, 'runSync'])->name('eventbrite.sync.run');
+

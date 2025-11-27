@@ -12,5 +12,8 @@ class VerifyCsrfToken extends Middleware
      */
     protected $except = [
         'webhooks/*',
+        'eventbrite/sync/run',
+        'pregames/validate-order',
+        'pregames/*',
     ];
 }

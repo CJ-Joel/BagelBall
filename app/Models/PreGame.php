@@ -9,7 +9,7 @@ class PreGame extends Model
 {
     protected $table = 'pregames';
     protected $fillable = [
-        'name', 'description', 'start_time', 'location', 'capacity', 'price'
+        'name', 'description', 'start_time', 'location', 'capacity', 'price', 'eventbrite_event_id'
     ];
 
     public function registrations(): HasMany

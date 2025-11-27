@@ -101,6 +101,16 @@ class EventbriteWebhookController extends Controller
             
             $profile = $attendee['profile'] ?? [];
             
+            // Parse the datetime from Eventbrite format to MySQL format
+            $redeemedAt = null;
+            if (isset($attendee['created'])) {
+                try {
+                    $redeemedAt = \Carbon\Carbon::parse($attendee['created'])->format('Y-m-d H:i:s');
+                } catch (\Exception $e) {
+                    // If parsing fails, leave as null
+                }
+            }
+            
             EventbriteTicket::updateOrCreate(
                 [
                     'eventbrite_ticket_id' => $eventbriteTicketId,
@@ -111,7 +121,7 @@ class EventbriteWebhookController extends Controller
                     'first_name' => $profile['first_name'] ?? $attendee['first_name'] ?? null,
                     'last_name' => $profile['last_name'] ?? $attendee['last_name'] ?? null,
                     'email' => $profile['email'] ?? $attendee['email'] ?? null,
-                    'redeemed_at' => $attendee['created'] ?? null,
+                    'redeemed_at' => $redeemedAt,
                 ]
             );
             
@@ -264,5 +274,175 @@ class EventbriteWebhookController extends Controller
                 'error' => 'Exception: ' . $e->getMessage()
             ]);
         }
+    }
+
+    // Sync orders from Eventbrite API (GET - show form)
+    public function syncOrders(Request $request)
+    {
+        return view('eventbrite.sync', [
+            'pregames' => PreGame::whereNotNull('eventbrite_event_id')->get()
+        ]);
+    }
+
+    // Run sync via AJAX
+    public function runSync(Request $request)
+    {
+        try {
+            set_time_limit(300); // 5 minutes
+            
+            $pregameId = $request->input('pregame_id');
+            
+            if (!$pregameId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'PreGame ID is required'
+                ]);
+            }
+            
+            $token = config('services.eventbrite.token');
+            
+            if (!$token) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Eventbrite token not configured'
+                ]);
+            }
+            
+            $output = [];
+            
+            if ($pregameId === 'all') {
+                $pregames = PreGame::whereNotNull('eventbrite_event_id')->get();
+                
+                if ($pregames->isEmpty()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'No PreGames found with eventbrite_event_id set'
+                    ]);
+                }
+                
+                foreach ($pregames as $pregame) {
+                    $output[] = "Syncing PreGame: {$pregame->name} (Event ID: {$pregame->eventbrite_event_id})";
+                    $result = $this->syncEventOrders($pregame->eventbrite_event_id, $pregame->id, $token);
+                    $output[] = $result;
+                }
+            } else {
+                $pregame = PreGame::find($pregameId);
+                if (!$pregame) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'PreGame not found'
+                    ]);
+                }
+                
+                if (!$pregame->eventbrite_event_id) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'PreGame does not have an Eventbrite Event ID set'
+                    ]);
+                }
+                
+                $output[] = "Syncing Event ID: {$pregame->eventbrite_event_id}";
+                $result = $this->syncEventOrders($pregame->eventbrite_event_id, $pregame->id, $token);
+                $output[] = $result;
+            }
+            
+            return response()->json([
+                'success' => true,
+                'output' => implode("\n", $output),
+                'message' => 'Sync completed successfully!'
+            ]);
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Sync error', [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage()
+            ]);
+        }
+    }
+
+    // Sync orders for a specific event
+    private function syncEventOrders($eventId, $pregameId, $token)
+    {
+        $page = 1;
+        $totalOrders = 0;
+        $totalAttendees = 0;
+        $output = [];
+
+        while ($page <= 10) { // Limit to 10 pages max
+            $response = Http::withToken($token)
+                ->withoutVerifying()
+                ->timeout(30)
+                ->get("https://www.eventbriteapi.com/v3/events/{$eventId}/orders/", [
+                    'page' => $page,
+                    'expand' => 'attendees'
+                ]);
+
+            if (!$response->successful()) {
+                $output[] = "Failed to fetch orders (page {$page}): " . $response->status();
+                break;
+            }
+
+            $data = $response->json();
+            $orders = $data['orders'] ?? [];
+            
+            if (empty($orders)) {
+                break;
+            }
+
+            foreach ($orders as $order) {
+                $orderId = $order['id'];
+                $attendees = $order['attendees'] ?? [];
+                
+                $totalOrders++;
+
+                foreach ($attendees as $attendee) {
+                    $eventbriteTicketId = $attendee['id'] ?? null;
+                    
+                    if (!$eventbriteTicketId) {
+                        continue;
+                    }
+
+                    $profile = $attendee['profile'] ?? [];
+                    
+                    // Parse the datetime from Eventbrite format to MySQL format
+                    $redeemedAt = null;
+                    if (isset($attendee['created'])) {
+                        try {
+                            $redeemedAt = \Carbon\Carbon::parse($attendee['created'])->format('Y-m-d H:i:s');
+                        } catch (\Exception $e) {
+                            // If parsing fails, leave as null
+                        }
+                    }
+                    
+                    EventbriteTicket::updateOrCreate(
+                        ['eventbrite_ticket_id' => $eventbriteTicketId],
+                        [
+                            'pregame_id' => null, // Will be assigned when user registers
+                            'eventbrite_order_id' => $orderId,
+                            'first_name' => $profile['first_name'] ?? $attendee['first_name'] ?? null,
+                            'last_name' => $profile['last_name'] ?? $attendee['last_name'] ?? null,
+                            'email' => $profile['email'] ?? $attendee['email'] ?? null,
+                            'redeemed_at' => $redeemedAt,
+                        ]
+                    );
+                    
+                    $totalAttendees++;
+                }
+            }
+
+            // Check if there are more pages
+            $pagination = $data['pagination'] ?? [];
+            if (!($pagination['has_more_items'] ?? false)) {
+                break;
+            }
+            
+            $page++;
+        }
+
+        return "Summary: {$totalOrders} orders, {$totalAttendees} attendees synced";
     }
 }

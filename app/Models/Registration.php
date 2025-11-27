@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Registration extends Model
 {
     protected $fillable = [
-        'pregame_id', 'name', 'email', 'friend_name', 'friend_email', 'payment_status', 'eventbrite_ticket_id'
+        'pregame_id', 'name', 'email', 'friend_name', 'friend_email', 'payment_status', 'eventbrite_ticket_id', 'eventbrite_order_id'
     ];
 
     public function pregame(): BelongsTo
