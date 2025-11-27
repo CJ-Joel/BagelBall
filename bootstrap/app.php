@@ -23,6 +23,10 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->validateCsrfTokens(except: [
             'pregames/validate-order',
         ]);
+        
+        // Ensure session middleware is properly configured
+        $middleware->statefulApi();
+        
         $middleware->web(append: [
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
