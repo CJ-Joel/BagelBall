@@ -3,6 +3,7 @@
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\DebugSessionMiddleware;
 use App\Http\Middleware\DebugSessionPayload;
+use App\Http\Middleware\ValidateJwtToken;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -26,6 +27,12 @@ return Application::configure(basePath: dirname(__DIR__))
             'webhooks/*',
             'eventbrite/sync/run',
             'pregames/validate-order',
+            'api/*',
+        ]);
+        
+        // Register JWT middleware
+        $middleware->alias([
+            'jwt' => ValidateJwtToken::class,
         ]);
         
         // Explicitly configure web middleware - ensure sessions are properly initialized

@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\AuthController;
 
 /*
 |--------------------------------------------------------------------------
@@ -13,22 +14,12 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Cookie;
+// Public auth routes (no JWT required)
+Route::post('/auth/login', [AuthController::class, 'login']);
+Route::post('/auth/register', [AuthController::class, 'register']);
 
-// Session test - try manipulating response before sending
-Route::get('/debug/session', function () {
-    session()->put('visit_count', (session()->get('visit_count', 0) + 1));
-    session()->save();
-    
-    $sessionId = session()->getId();
-    $visitCount = session()->get('visit_count');
-    
-    $text = "Session ID: $sessionId\nVisit Count: $visitCount\n";
-    $response = response($text, 200, ['Content-Type' => 'text/plain']);
-    
-    // Add a macro test
-    $response->header('X-Custom-Header', 'test-value');
-    
-    return $response;
-})->middleware('web');
+// Protected routes (JWT required)
+Route::middleware('jwt')->group(function () {
+    Route::get('/auth/me', [AuthController::class, 'me']);
+    Route::post('/auth/logout', [AuthController::class, 'logout']);
+});
