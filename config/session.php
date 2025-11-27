@@ -38,6 +38,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Session ID Regeneration
+    |--------------------------------------------------------------------------
+    |
+    | If true, Laravel will regenerate the session ID on each request.
+    | Set to false to keep the same session ID across requests (better for UX).
+    | The session ID should only be regenerated on authentication state changes.
+    |
+    */
+
+    'regenerate' => env('SESSION_REGENERATE_ON_REQUEST', false),
+
+    /*
+    |--------------------------------------------------------------------------
     | Session Encryption
     |--------------------------------------------------------------------------
     |
