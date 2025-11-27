@@ -24,3 +24,20 @@ Route::post('/pregames/{pregame}/signup', [\App\Http\Controllers\RegistrationCon
 Route::post('/pregames/validate-order', [\App\Http\Controllers\RegistrationController::class, 'validateOrderId'])->name('pregames.validate.order');
 
 Route::get('/checkout/success', [\App\Http\Controllers\CheckoutController::class, 'success'])->name('checkout.success');
+
+// Debug route to test session
+Route::get('/test-session-debug', function() {
+    session()->put('test_key', 'test_value');
+    session()->save();
+    
+    return response()->json([
+        'session_id' => session()->getId(),
+        'session_driver' => config('session.driver'),
+        'session_saved' => session()->has('test_key'),
+        'cookie_name' => config('session.cookie'),
+        'cookie_domain' => config('session.domain'),
+        'cookie_path' => config('session.path'),
+        'cookie_secure' => config('session.secure'),
+        'cookie_same_site' => config('session.same_site'),
+    ]);
+});
