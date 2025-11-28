@@ -1,9 +1,9 @@
 @extends('layouts.app')
 
 @section('content')
-<div class="min-h-screen bg-gray-900 text-white py-8">
+<div class="min-h-screen bg-gray-900 text-white py-6 sm:py-8 px-4 sm:px-0">
     <div class="max-w-md mx-auto">
-        <h1 class="text-2xl font-bold mb-4">Sign Up for {{ $pregame->name }}</h1>
+        <h1 class="text-xl sm:text-2xl font-bold mb-4">Sign Up for {{ $pregame->name }}</h1>
         
         @if(session('error'))
             <div class="bg-red-600 text-white p-4 rounded mb-4">
@@ -14,19 +14,19 @@
         <form method="POST" action="{{ route('pregames.signup.submit', $pregame, false) }}" class="space-y-4" id="signupForm">
             @csrf
             <!-- Step 1: Eventbrite Order ID -->
-            <div class="bg-gray-800 p-4 rounded">
-                <label class="block mb-2 font-semibold">Eventbrite Order ID</label>
+            <div class="bg-gray-800 p-3 sm:p-4 rounded">
+                <label class="block mb-2 font-semibold text-sm sm:text-base">Eventbrite Order ID</label>
                 <input 
                     type="text" 
                     name="eventbrite_order_id" 
                     id="orderIdInput"
-                    class="w-full px-3 py-2 rounded bg-gray-700 text-white border border-gray-600" 
+                    class="w-full px-3 py-2 rounded bg-gray-700 text-white border border-gray-600 text-base" 
                     placeholder="e.g., 13813580483"
                     required>
                 <button 
                     type="button" 
                     id="validateBtn"
-                    class="mt-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white font-semibold w-full">
+                    class="mt-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white font-semibold w-full text-base">
                     Validate Order
                 </button>
                 <div id="validationMessage" class="mt-2 text-sm"></div>
@@ -34,66 +34,66 @@
 
             <!-- Step 2: User Information (hidden until validated) -->
             <div id="userInfoSection" style="display: none;">
-                <div class="bg-gray-800 p-4 rounded space-y-4">
-                    <h3 class="font-semibold text-lg mb-2">Your Information</h3>
+                <div class="bg-gray-800 p-3 sm:p-4 rounded space-y-4">
+                    <h3 class="font-semibold text-base sm:text-lg mb-2">Your Information</h3>
                     <div>
-                        <label class="block mb-1">First Name</label>
-                        <input type="text" name="first_name" id="firstName" class="w-full px-3 py-2 rounded bg-gray-700 text-white" required>
+                        <label class="block mb-1 text-sm">First Name</label>
+                        <input type="text" name="first_name" id="firstName" class="w-full px-3 py-2 rounded bg-gray-700 text-white text-base" required>
                     </div>
                     <div>
-                        <label class="block mb-1">Last Name</label>
-                        <input type="text" name="last_name" id="lastName" class="w-full px-3 py-2 rounded bg-gray-700 text-white" required>
+                        <label class="block mb-1 text-sm">Last Name</label>
+                        <input type="text" name="last_name" id="lastName" class="w-full px-3 py-2 rounded bg-gray-700 text-white text-base" required>
                     </div>
                     <div>
-                        <label class="block mb-1">Email</label>
-                        <input type="email" name="email" id="email" class="w-full px-3 py-2 rounded bg-gray-700 text-white" required>
+                        <label class="block mb-1 text-sm">Email</label>
+                        <input type="email" name="email" id="email" class="w-full px-3 py-2 rounded bg-gray-700 text-white text-base" required>
                     </div>
                 </div>
 
                 <!-- Add Friend Option -->
-                <div class="bg-gray-800 p-4 rounded">
+                <div class="bg-gray-800 p-3 sm:p-4 rounded">
                     <button 
                         type="button" 
                         id="addFriendBtn"
-                        class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded text-white font-semibold">
+                        class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded text-white font-semibold text-base w-full">
                         + Add a Friend
                     </button>
                 </div>
 
                 <!-- Friend Section (hidden until Add Friend is clicked) -->
-                <div id="friendSection" style="display: none;" class="bg-gray-800 p-4 rounded space-y-4">
-                    <h3 class="font-semibold text-lg mb-2">Friend's Information</h3>
+                <div id="friendSection" style="display: none;" class="bg-gray-800 p-3 sm:p-4 rounded space-y-4">
+                    <h3 class="font-semibold text-base sm:text-lg mb-2">Friend's Information</h3>
                     <input type="hidden" name="has_friend" id="hasFriendInput" value="0">
                     <div>
-                        <label class="block mb-1">Friend's Name</label>
-                        <input type="text" name="friend_name" id="friendName" class="w-full px-3 py-2 rounded bg-gray-700 text-white">
+                        <label class="block mb-1 text-sm">Friend's Name</label>
+                        <input type="text" name="friend_name" id="friendName" class="w-full px-3 py-2 rounded bg-gray-700 text-white text-base">
                     </div>
                     <div>
-                        <label class="block mb-1">Friend's Email</label>
-                        <input type="email" name="friend_email" id="friendEmail" class="w-full px-3 py-2 rounded bg-gray-700 text-white">
+                        <label class="block mb-1 text-sm">Friend's Email</label>
+                        <input type="email" name="friend_email" id="friendEmail" class="w-full px-3 py-2 rounded bg-gray-700 text-white text-base">
                     </div>
                     <button 
                         type="button" 
                         id="removeFriendBtn"
-                        class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-white text-sm">
+                        class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-white text-base w-full">
                         Remove Friend
                     </button>
                 </div>
 
                 <!-- Price Display -->
-                <div class="bg-blue-900 p-4 rounded">
-                    <div class="flex justify-between items-center">
-                        <span class="font-semibold">Total Price:</span>
-                        <span class="text-2xl font-bold" id="totalPrice">${{ number_format($pregame->price, 2) }}</span>
+                <div class="bg-blue-900 p-3 sm:p-4 rounded">
+                    <div class="flex justify-between items-center gap-4">
+                        <span class="font-semibold text-base">Total Price:</span>
+                        <span class="text-xl sm:text-2xl font-bold" id="totalPrice">${{ number_format($pregame->price, 2) }}</span>
                     </div>
-                    <div class="text-sm text-gray-300 mt-1">
+                    <div class="text-xs sm:text-sm text-gray-300 mt-2">
                         <span id="priceBreakdown">1 person × ${{ number_format($pregame->price, 2) }}</span>
                     </div>
                 </div>
 
                 <button 
                     type="submit" 
-                    class="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white font-semibold text-lg">
+                    class="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 rounded text-white font-semibold text-base sm:text-lg">
                     Continue to Payment
                 </button>
             </div>
