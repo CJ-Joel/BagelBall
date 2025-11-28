@@ -55,7 +55,7 @@
                 </a>
 
                 <!-- Secondary Button: Get Tickets -->
-                <a href="https://bagelball.eventbrite.org/"
+                <a href="https://bagelball.eventbrite.com/"
                    target="_blank"
                    rel="noopener noreferrer"
                    class="flex-1 px-6 sm:px-8 py-3 sm:py-4 border-2 border-yellow-300 text-yellow-300 font-bold text-base sm:text-lg rounded-lg hover:bg-yellow-300/10 transition duration-200 text-center">
