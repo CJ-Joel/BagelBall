@@ -15,7 +15,7 @@
 
             <!-- Subheading -->
             <p class="text-base sm:text-xl lg:text-2xl text-slate-300 mb-8 leading-relaxed max-w-2xl mx-auto">
-                Join intimate, curated gatherings across DC before the main event. Meet new people, make connections, and get to know your Bagel Ball community.
+                Join intimate, curated gatherings across DMV before the main event. Meet new people, make connections, and get to know your Bagel Ball community.
             </p>
 
             <!-- Key Features -->
