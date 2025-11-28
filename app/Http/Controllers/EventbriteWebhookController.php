@@ -111,18 +111,28 @@ class EventbriteWebhookController extends Controller
                 }
             }
             
+            // Check if ticket already exists
+            $existingTicket = EventbriteTicket::where('eventbrite_ticket_id', $eventbriteTicketId)->first();
+            
+            // Build update array, preserving existing redeemed_at if already set
+            $updateData = [
+                'pregame_id' => $pregame->id,
+                'eventbrite_order_id' => $orderId,
+                'first_name' => $profile['first_name'] ?? $attendee['first_name'] ?? null,
+                'last_name' => $profile['last_name'] ?? $attendee['last_name'] ?? null,
+                'email' => $profile['email'] ?? $attendee['email'] ?? null,
+            ];
+            
+            // Only set redeemed_at if it's not already set on existing record
+            if (!$existingTicket || !$existingTicket->redeemed_at) {
+                $updateData['redeemed_at'] = $redeemedAt;
+            }
+            
             EventbriteTicket::updateOrCreate(
                 [
                     'eventbrite_ticket_id' => $eventbriteTicketId,
                 ],
-                [
-                    'pregame_id' => $pregame->id,
-                    'eventbrite_order_id' => $orderId,
-                    'first_name' => $profile['first_name'] ?? $attendee['first_name'] ?? null,
-                    'last_name' => $profile['last_name'] ?? $attendee['last_name'] ?? null,
-                    'email' => $profile['email'] ?? $attendee['email'] ?? null,
-                    'redeemed_at' => $redeemedAt,
-                ]
+                $updateData
             );
             
             \Illuminate\Support\Facades\Log::info('Ticket stored', [
@@ -418,16 +428,26 @@ class EventbriteWebhookController extends Controller
                         }
                     }
                     
+                    // Check if ticket already exists
+                    $existingTicket = EventbriteTicket::where('eventbrite_ticket_id', $eventbriteTicketId)->first();
+                    
+                    // Build update array, preserving existing redeemed_at if already set
+                    $updateData = [
+                        'pregame_id' => null, // Will be assigned when user registers
+                        'eventbrite_order_id' => $orderId,
+                        'first_name' => $profile['first_name'] ?? $attendee['first_name'] ?? null,
+                        'last_name' => $profile['last_name'] ?? $attendee['last_name'] ?? null,
+                        'email' => $profile['email'] ?? $attendee['email'] ?? null,
+                    ];
+                    
+                    // Only set redeemed_at if it's not already set on existing record
+                    if (!$existingTicket || !$existingTicket->redeemed_at) {
+                        $updateData['redeemed_at'] = $redeemedAt;
+                    }
+                    
                     EventbriteTicket::updateOrCreate(
                         ['eventbrite_ticket_id' => $eventbriteTicketId],
-                        [
-                            'pregame_id' => null, // Will be assigned when user registers
-                            'eventbrite_order_id' => $orderId,
-                            'first_name' => $profile['first_name'] ?? $attendee['first_name'] ?? null,
-                            'last_name' => $profile['last_name'] ?? $attendee['last_name'] ?? null,
-                            'email' => $profile['email'] ?? $attendee['email'] ?? null,
-                            'redeemed_at' => $redeemedAt,
-                        ]
+                        $updateData
                     );
                     
                     $totalAttendees++;

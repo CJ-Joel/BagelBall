@@ -109,14 +109,6 @@ class RegistrationController extends Controller
     // Handle signup submission
     public function store(Request $request, PreGame $pregame)
     {
-        \Log::info('STORE: Session ID is ' . session()->getId());
-        \Log::info('STORE: Request Token is ' . $request->input('_token'));
-
-        \Log::info('Store method called', [
-            'pregame_id' => $pregame->id,
-            'request_data' => $request->all()
-        ]);
-        
         if ($pregame->isFull()) {
             return redirect()->route('pregames.signup', $pregame)->with('error', 'This pre-game is full.');
         }
@@ -150,9 +142,8 @@ class RegistrationController extends Controller
                 ->with('error', 'Invalid Eventbrite order or ticket already used.');
         }
 
-        // Assign the ticket to this pregame
-        $ticket->update(['pregame_id' => $pregame->id]);
-
+        // Create registration with payment_status = 'pending'
+        // DO NOT assign ticket yet - only assign after successful payment
         $registration = $pregame->registrations()->create([
             'eventbrite_order_id' => $data['eventbrite_order_id'],
             'eventbrite_ticket_id' => $ticket->id,

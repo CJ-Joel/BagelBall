@@ -13,11 +13,6 @@
 
         <form method="POST" action="{{ route('pregames.signup.submit', $pregame, false) }}" class="space-y-4" id="signupForm">
             @csrf
-            <!-- DEBUGGING: Show Session ID and CSRF Token -->
-<div class="bg-yellow-500 text-black p-2 rounded">
-    <p><strong>DEBUG SESSION ID:</strong> {{ session()->getId() }}</p>
-    <p><strong>DEBUG CSRF TOKEN:</strong> {{ csrf_token() }}</p>
-</div>
             <!-- Step 1: Eventbrite Order ID -->
             <div class="bg-gray-800 p-4 rounded">
                 <label class="block mb-2 font-semibold">Eventbrite Order ID</label>
@@ -105,6 +100,11 @@
         </form>
     </div>
 </div>
+
+<script>
+    // Show all cookies
+    document.getElementById('cookieDebug').textContent = document.cookie || '(no cookies)';
+</script>
 
 <script>
     const pregamePrice = {{ $pregame->price }};

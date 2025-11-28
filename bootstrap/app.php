@@ -1,8 +1,6 @@
 <?php
 
 use App\Http\Middleware\HandleInertiaRequests;
-use App\Http\Middleware\DebugSessionMiddleware;
-use App\Http\Middleware\DebugSessionPayload;
 use App\Http\Middleware\ValidateJwtToken;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -27,6 +25,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'webhooks/*',
             'eventbrite/sync/run',
             'pregames/validate-order',
+            'pregames/*/signup',
             'api/*',
         ]);
         
@@ -35,17 +34,16 @@ return Application::configure(basePath: dirname(__DIR__))
             'jwt' => ValidateJwtToken::class,
         ]);
         
-        // Explicitly configure web middleware - ensure sessions are properly initialized
+        // Explicitly configure web middleware
         $middleware->web([
-            DebugSessionPayload::class,  // DEBUG: Log all session data
             \Illuminate\Cookie\Middleware\EncryptCookies::class,
+            \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
             \Illuminate\Session\Middleware\StartSession::class,
             \Illuminate\View\Middleware\ShareErrorsFromSession::class,
             \Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class,
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
-            \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
