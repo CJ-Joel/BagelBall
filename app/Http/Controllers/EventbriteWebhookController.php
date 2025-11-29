@@ -1,9 +1,10 @@
 <?php
+
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
 use App\Models\EventbriteTicket;
 use App\Models\PreGame;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 
 class EventbriteWebhookController extends Controller
@@ -12,24 +13,25 @@ class EventbriteWebhookController extends Controller
     public function handle(Request $request)
     {
         $payload = $request->all();
-        
+
         // Log all webhook calls for debugging
         \Illuminate\Support\Facades\Log::info('Eventbrite webhook received', ['payload' => $payload]);
 
         // Check if this is an order.placed webhook with api_url
         if (isset($payload['api_url']) && isset($payload['config']['action'])) {
             $action = $payload['config']['action'];
-            
+
             // Only process order.placed events
             if ($action === 'order.placed') {
                 $apiUrl = $payload['api_url'];
-                
+
                 try {
                     // Fetch the full order details from Eventbrite API
                     $token = config('services.eventbrite.token');
-                    
-                    if (!$token) {
+
+                    if (! $token) {
                         \Illuminate\Support\Facades\Log::error('Eventbrite token not configured');
+
                         return response()->json(['status' => 'error', 'message' => 'Token not configured'], 500);
                     }
 
@@ -40,23 +42,31 @@ class EventbriteWebhookController extends Controller
                     if ($response->successful()) {
                         $orderData = $response->json();
                         \Illuminate\Support\Facades\Log::info('Eventbrite order fetched', ['order' => $orderData]);
-                        
+
                         // Process the order data
                         $this->processOrder($orderData);
-                        
-                        return response()->json(['status' => 'success', 'message' => 'Order processed']);
+
+                        // Sync all tickets for the event to ensure completeness
+                        $eventId = $orderData['event_id'] ?? null;
+                        if ($eventId) {
+                            $this->syncAllTicketsForEvent($eventId, $token);
+                        }
+
+                        return response()->json(['status' => 'success', 'message' => 'Order processed and tickets synced']);
                     } else {
                         \Illuminate\Support\Facades\Log::error('Failed to fetch order from Eventbrite', [
                             'status' => $response->status(),
-                            'body' => $response->body()
+                            'body' => $response->body(),
                         ]);
+
                         return response()->json(['status' => 'error', 'message' => 'Failed to fetch order'], 500);
                     }
                 } catch (\Exception $e) {
                     \Illuminate\Support\Facades\Log::error('Exception fetching Eventbrite order', [
                         'message' => $e->getMessage(),
-                        'trace' => $e->getTraceAsString()
+                        'trace' => $e->getTraceAsString(),
                     ]);
+
                     return response()->json(['status' => 'error', 'message' => $e->getMessage()], 500);
                 }
             }
@@ -76,31 +86,33 @@ class EventbriteWebhookController extends Controller
         $eventId = $orderData['event_id'] ?? null;
         $orderId = $orderData['id'] ?? null;
 
-        if (!$eventId || !$orderId) {
+        if (! $eventId || ! $orderId) {
             \Illuminate\Support\Facades\Log::warning('Order missing event_id or order id', ['order' => $orderData]);
+
             return;
         }
 
         // Find the matching PreGame
         $pregame = PreGame::where('eventbrite_event_id', $eventId)->first();
-        
-        if (!$pregame) {
+
+        if (! $pregame) {
             \Illuminate\Support\Facades\Log::warning('No PreGame found for event_id', ['event_id' => $eventId]);
+
             return;
         }
 
         // Process attendees
         $attendees = $orderData['attendees'] ?? [];
-        
+
         foreach ($attendees as $attendee) {
             $eventbriteTicketId = $attendee['id'] ?? null;
-            
-            if (!$eventbriteTicketId) {
+
+            if (! $eventbriteTicketId) {
                 continue;
             }
-            
+
             $profile = $attendee['profile'] ?? [];
-            
+
             // Parse the datetime from Eventbrite format to MySQL format
             $redeemedAt = null;
             if (isset($attendee['created'])) {
@@ -110,10 +122,10 @@ class EventbriteWebhookController extends Controller
                     // If parsing fails, leave as null
                 }
             }
-            
+
             // Check if ticket already exists
             $existingTicket = EventbriteTicket::where('eventbrite_ticket_id', $eventbriteTicketId)->first();
-            
+
             // Build update array, preserving existing redeemed_at if already set
             $updateData = [
                 'pregame_id' => $pregame->id,
@@ -122,23 +134,23 @@ class EventbriteWebhookController extends Controller
                 'last_name' => $profile['last_name'] ?? $attendee['last_name'] ?? null,
                 'email' => $profile['email'] ?? $attendee['email'] ?? null,
             ];
-            
+
             // Only set redeemed_at if it's not already set on existing record
-            if (!$existingTicket || !$existingTicket->redeemed_at) {
+            if (! $existingTicket || ! $existingTicket->redeemed_at) {
                 $updateData['redeemed_at'] = $redeemedAt;
             }
-            
+
             EventbriteTicket::updateOrCreate(
                 [
                     'eventbrite_ticket_id' => $eventbriteTicketId,
                 ],
                 $updateData
             );
-            
+
             \Illuminate\Support\Facades\Log::info('Ticket stored', [
                 'ticket_id' => $eventbriteTicketId,
                 'order_id' => $orderId,
-                'pregame_id' => $pregame->id
+                'pregame_id' => $pregame->id,
             ]);
         }
     }
@@ -148,19 +160,19 @@ class EventbriteWebhookController extends Controller
     {
         $logFile = storage_path('logs/laravel.log');
         $lines = [];
-        
+
         if (file_exists($logFile)) {
             // Read the log file and filter for Eventbrite webhook entries
             $content = file_get_contents($logFile);
             $allLines = explode("\n", $content);
-            
+
             // Get last 500 lines to avoid memory issues on large logs
             $recentLines = array_slice($allLines, -500);
-            
+
             // Filter for Eventbrite webhook entries
             $eventbriteEntries = [];
             $currentEntry = '';
-            
+
             foreach ($recentLines as $line) {
                 if (strpos($line, 'Eventbrite webhook received') !== false) {
                     if ($currentEntry) {
@@ -168,27 +180,28 @@ class EventbriteWebhookController extends Controller
                     }
                     $currentEntry = $line;
                 } elseif ($currentEntry && (strpos($line, '[') === 0 || strpos($line, '{') !== false)) {
-                    $currentEntry .= "\n" . $line;
+                    $currentEntry .= "\n".$line;
                 } elseif (empty(trim($line)) && $currentEntry) {
                     $eventbriteEntries[] = $currentEntry;
                     $currentEntry = '';
                 }
             }
-            
+
             if ($currentEntry) {
                 $eventbriteEntries[] = $currentEntry;
             }
-            
+
             $lines = array_reverse($eventbriteEntries); // Most recent first
         }
-        
-        return view('eventbrite.webhook_log', ['log' => implode("\n\n" . str_repeat('-', 80) . "\n\n", $lines)]);
+
+        return view('eventbrite.webhook_log', ['log' => implode("\n\n".str_repeat('-', 80)."\n\n", $lines)]);
     }
 
     // Temporary test method for webhook logging
     public function testLog()
     {
-        \Illuminate\Support\Facades\Storage::append('eventbrite_webhook.log', 'Test log entry: ' . now());
+        \Illuminate\Support\Facades\Storage::append('eventbrite_webhook.log', 'Test log entry: '.now());
+
         return response('Test log entry written.', 200);
     }
 
@@ -202,7 +215,7 @@ class EventbriteWebhookController extends Controller
                 'action' => 'order.placed',
                 'user_id' => '659292334583',
                 'endpoint_url' => url('/webhooks/eventbrite'),
-                'webhook_id' => '15644201'
+                'webhook_id' => '15644201',
             ],
             'event_id' => '123456789',
             'order_id' => '1234567890',
@@ -217,32 +230,32 @@ class EventbriteWebhookController extends Controller
                         'name' => 'John Doe',
                         'email' => 'john@example.com',
                         'first_name' => 'John',
-                        'last_name' => 'Doe'
+                        'last_name' => 'Doe',
                     ],
                     'barcodes' => [
                         [
                             'barcode' => 'TESTBARCODE123',
-                            'status' => 'unused'
-                        ]
+                            'status' => 'unused',
+                        ],
                     ],
                     'checked_in' => false,
                     'cancelled' => false,
                     'refunded' => false,
-                    'status' => 'Attending'
-                ]
-            ]
+                    'status' => 'Attending',
+                ],
+            ],
         ];
 
         // Call your webhook handler with the sample data
         $request = Request::create('/webhooks/eventbrite', 'POST', $samplePayload);
         $request->headers->set('Content-Type', 'application/json');
-        
+
         $response = $this->handle($request);
 
         return response()->json([
             'message' => 'Test webhook sent',
             'sample_payload' => $samplePayload,
-            'handler_response' => $response->getData()
+            'handler_response' => $response->getData(),
         ]);
     }
 
@@ -250,17 +263,17 @@ class EventbriteWebhookController extends Controller
     public function orderLookup(Request $request)
     {
         $orderId = $request->get('order_id');
-        
-        if (!$orderId) {
+
+        if (! $orderId) {
             return view('eventbrite.order_lookup');
         }
 
         try {
             $token = config('services.eventbrite.token');
-            
-            if (!$token) {
+
+            if (! $token) {
                 return view('eventbrite.order_lookup', [
-                    'error' => 'Eventbrite API token not configured. Please set EVENTBRITE_PRIVATE_TOKEN in your .env file.'
+                    'error' => 'Eventbrite API token not configured. Please set EVENTBRITE_PRIVATE_TOKEN in your .env file.',
                 ]);
             }
 
@@ -272,16 +285,16 @@ class EventbriteWebhookController extends Controller
 
             if ($response->successful()) {
                 return view('eventbrite.order_lookup', [
-                    'orderData' => $response->json()
+                    'orderData' => $response->json(),
                 ]);
             } else {
                 return view('eventbrite.order_lookup', [
-                    'error' => 'Failed to fetch order: ' . $response->status() . ' - ' . $response->body()
+                    'error' => 'Failed to fetch order: '.$response->status().' - '.$response->body(),
                 ]);
             }
         } catch (\Exception $e) {
             return view('eventbrite.order_lookup', [
-                'error' => 'Exception: ' . $e->getMessage()
+                'error' => 'Exception: '.$e->getMessage(),
             ]);
         }
     }
@@ -290,7 +303,7 @@ class EventbriteWebhookController extends Controller
     public function syncOrders(Request $request)
     {
         return view('eventbrite.sync', [
-            'pregames' => PreGame::whereNotNull('eventbrite_event_id')->get()
+            'pregames' => PreGame::whereNotNull('eventbrite_event_id')->get(),
         ]);
     }
 
@@ -299,37 +312,37 @@ class EventbriteWebhookController extends Controller
     {
         try {
             set_time_limit(300); // 5 minutes
-            
+
             $pregameId = $request->input('pregame_id');
-            
-            if (!$pregameId) {
+
+            if (! $pregameId) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'PreGame ID is required'
+                    'message' => 'PreGame ID is required',
                 ]);
             }
-            
+
             $token = config('services.eventbrite.token');
-            
-            if (!$token) {
+
+            if (! $token) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Eventbrite token not configured'
+                    'message' => 'Eventbrite token not configured',
                 ]);
             }
-            
+
             $output = [];
-            
+
             if ($pregameId === 'all') {
                 $pregames = PreGame::whereNotNull('eventbrite_event_id')->get();
-                
+
                 if ($pregames->isEmpty()) {
                     return response()->json([
                         'success' => false,
-                        'message' => 'No PreGames found with eventbrite_event_id set'
+                        'message' => 'No PreGames found with eventbrite_event_id set',
                     ]);
                 }
-                
+
                 foreach ($pregames as $pregame) {
                     $output[] = "Syncing PreGame: {$pregame->name} (Event ID: {$pregame->eventbrite_event_id})";
                     $result = $this->syncEventOrders($pregame->eventbrite_event_id, $pregame->id, $token);
@@ -337,39 +350,39 @@ class EventbriteWebhookController extends Controller
                 }
             } else {
                 $pregame = PreGame::find($pregameId);
-                if (!$pregame) {
+                if (! $pregame) {
                     return response()->json([
                         'success' => false,
-                        'message' => 'PreGame not found'
+                        'message' => 'PreGame not found',
                     ]);
                 }
-                
-                if (!$pregame->eventbrite_event_id) {
+
+                if (! $pregame->eventbrite_event_id) {
                     return response()->json([
                         'success' => false,
-                        'message' => 'PreGame does not have an Eventbrite Event ID set'
+                        'message' => 'PreGame does not have an Eventbrite Event ID set',
                     ]);
                 }
-                
+
                 $output[] = "Syncing Event ID: {$pregame->eventbrite_event_id}";
                 $result = $this->syncEventOrders($pregame->eventbrite_event_id, $pregame->id, $token);
                 $output[] = $result;
             }
-            
+
             return response()->json([
                 'success' => true,
                 'output' => implode("\n", $output),
-                'message' => 'Sync completed successfully!'
+                'message' => 'Sync completed successfully!',
             ]);
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Sync error', [
                 'message' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
-            
+
             return response()->json([
                 'success' => false,
-                'message' => 'Error: ' . $e->getMessage()
+                'message' => 'Error: '.$e->getMessage(),
             ]);
         }
     }
@@ -388,17 +401,17 @@ class EventbriteWebhookController extends Controller
                 ->timeout(30)
                 ->get("https://www.eventbriteapi.com/v3/events/{$eventId}/orders/", [
                     'page' => $page,
-                    'expand' => 'attendees'
+                    'expand' => 'attendees',
                 ]);
 
-            if (!$response->successful()) {
-                $output[] = "Failed to fetch orders (page {$page}): " . $response->status();
+            if (! $response->successful()) {
+                $output[] = "Failed to fetch orders (page {$page}): ".$response->status();
                 break;
             }
 
             $data = $response->json();
             $orders = $data['orders'] ?? [];
-            
+
             if (empty($orders)) {
                 break;
             }
@@ -406,18 +419,18 @@ class EventbriteWebhookController extends Controller
             foreach ($orders as $order) {
                 $orderId = $order['id'];
                 $attendees = $order['attendees'] ?? [];
-                
+
                 $totalOrders++;
 
                 foreach ($attendees as $attendee) {
                     $eventbriteTicketId = $attendee['id'] ?? null;
-                    
-                    if (!$eventbriteTicketId) {
+
+                    if (! $eventbriteTicketId) {
                         continue;
                     }
 
                     $profile = $attendee['profile'] ?? [];
-                    
+
                     // Parse the datetime from Eventbrite format to MySQL format
                     $redeemedAt = null;
                     if (isset($attendee['created'])) {
@@ -427,10 +440,10 @@ class EventbriteWebhookController extends Controller
                             // If parsing fails, leave as null
                         }
                     }
-                    
+
                     // Check if ticket already exists
                     $existingTicket = EventbriteTicket::where('eventbrite_ticket_id', $eventbriteTicketId)->first();
-                    
+
                     // Build update array, preserving existing redeemed_at if already set
                     $updateData = [
                         'pregame_id' => null, // Will be assigned when user registers
@@ -439,30 +452,55 @@ class EventbriteWebhookController extends Controller
                         'last_name' => $profile['last_name'] ?? $attendee['last_name'] ?? null,
                         'email' => $profile['email'] ?? $attendee['email'] ?? null,
                     ];
-                    
+
                     // Only set redeemed_at if it's not already set on existing record
-                    if (!$existingTicket || !$existingTicket->redeemed_at) {
+                    if (! $existingTicket || ! $existingTicket->redeemed_at) {
                         $updateData['redeemed_at'] = $redeemedAt;
                     }
-                    
+
                     EventbriteTicket::updateOrCreate(
                         ['eventbrite_ticket_id' => $eventbriteTicketId],
                         $updateData
                     );
-                    
+
                     $totalAttendees++;
                 }
             }
 
             // Check if there are more pages
             $pagination = $data['pagination'] ?? [];
-            if (!($pagination['has_more_items'] ?? false)) {
+            if (! ($pagination['has_more_items'] ?? false)) {
                 break;
             }
-            
+
             $page++;
         }
 
         return "Summary: {$totalOrders} orders, {$totalAttendees} attendees synced";
+    }
+
+    // Sync all tickets for an event when webhook is triggered
+    private function syncAllTicketsForEvent(string $eventId, string $token): void
+    {
+        try {
+            \Illuminate\Support\Facades\Log::info('Starting full ticket sync for event', ['event_id' => $eventId]);
+
+            // Find the pregame for this event (optional - sync works without it)
+            $pregame = PreGame::where('eventbrite_event_id', $eventId)->first();
+            $pregameId = $pregame ? $pregame->id : null;
+
+            $result = $this->syncEventOrders($eventId, $pregameId, $token);
+
+            \Illuminate\Support\Facades\Log::info('Full ticket sync completed', [
+                'event_id' => $eventId,
+                'result' => $result,
+            ]);
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Error during full ticket sync', [
+                'event_id' => $eventId,
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+        }
     }
 }
