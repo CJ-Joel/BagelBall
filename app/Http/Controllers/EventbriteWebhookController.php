@@ -19,23 +19,32 @@ class EventbriteWebhookController extends Controller
         // Check if this is an order.placed webhook with api_url
         if (isset($payload['api_url']) && isset($payload['config']['action'])) {
             $action = $payload['config']['action'];
+            \Illuminate\Support\Facades\Log::info('Webhook action detected', ['action' => $action]);
             
             // Only process order.placed events
             if ($action === 'order.placed') {
                 $apiUrl = $payload['api_url'];
+                \Illuminate\Support\Facades\Log::info('Processing order.placed event', ['apiUrl' => $apiUrl]);
                 
                 try {
                     // Fetch the full order details from Eventbrite API
                     $token = config('services.eventbrite.token');
+                    \Illuminate\Support\Facades\Log::info('Eventbrite token check', ['hasToken' => !empty($token)]);
                     
                     if (!$token) {
                         \Illuminate\Support\Facades\Log::error('Eventbrite token not configured');
                         return response()->json(['status' => 'error', 'message' => 'Token not configured'], 500);
                     }
 
+                    \Illuminate\Support\Facades\Log::info('Making API request', ['url' => $apiUrl, 'method' => 'GET']);
+                    
                     $response = Http::withToken($token)
                         ->withoutVerifying()
+                        ->timeout(10)
+                        ->retry(2, 100)
                         ->get($apiUrl);
+
+                    \Illuminate\Support\Facades\Log::info('API response received', ['status' => $response->status()]);
 
                     if ($response->successful()) {
                         $orderData = $response->json();
@@ -48,14 +57,16 @@ class EventbriteWebhookController extends Controller
                     } else {
                         \Illuminate\Support\Facades\Log::error('Failed to fetch order from Eventbrite', [
                             'status' => $response->status(),
-                            'body' => $response->body()
+                            'body' => $response->body(),
+                            'apiUrl' => $apiUrl
                         ]);
                         return response()->json(['status' => 'error', 'message' => 'Failed to fetch order'], 500);
                     }
                 } catch (\Exception $e) {
                     \Illuminate\Support\Facades\Log::error('Exception fetching Eventbrite order', [
                         'message' => $e->getMessage(),
-                        'trace' => $e->getTraceAsString()
+                        'trace' => $e->getTraceAsString(),
+                        'apiUrl' => $apiUrl
                     ]);
                     return response()->json(['status' => 'error', 'message' => $e->getMessage()], 500);
                 }
@@ -64,6 +75,7 @@ class EventbriteWebhookController extends Controller
 
         // Legacy: Process order if attendees are directly in payload
         if (isset($payload['attendees']) && is_array($payload['attendees'])) {
+            \Illuminate\Support\Facades\Log::info('Processing order from payload attendees');
             $this->processOrder($payload);
         }
 

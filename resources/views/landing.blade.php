@@ -49,7 +49,7 @@
             <div class="flex flex-col gap-3 sm:gap-4 justify-center max-w-2xl mx-auto">
                 <!-- Primary Button: Explore Pre-Games -->
                 <a href="{{ route('pregames.index') }}"
-                   class="flex-1 px-6 sm:px-8 py-3 sm:py-4 bg-gradient-to-r from-yellow-300 to-yellow-200 text-slate-900 font-bold text-base sm:text-lg rounded-lg hover:from-yellow-200 hover:to-yellow-100 transition transform hover:scale-105 duration-200 shadow-lg hover:shadow-yellow-300/50 text-center">
+                   class="flex-1 px-6 sm:px-8 py-3 sm:py-4 bg-gradient-to-r from-yellow-400 to-yellow-300 text-slate-950 font-bold text-base sm:text-lg rounded-lg hover:from-yellow-300 hover:to-yellow-200 transition transform hover:scale-105 duration-200 shadow-lg hover:shadow-yellow-400/50 text-center">
                     Explore Pre-Games
                     <span class="ml-2">→</span>
                 </a>
