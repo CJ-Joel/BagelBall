@@ -137,8 +137,8 @@ class EventbriteWebhookController extends Controller
             $existingTicket = EventbriteTicket::where('eventbrite_ticket_id', $eventbriteTicketId)->first();
             
             // Build update array, preserving existing redeemed_at if already set
+            // NOTE: Do NOT set pregame_id here - tickets are only assigned to a pregame when user registers
             $updateData = [
-                'pregame_id' => $pregame->id,
                 'eventbrite_order_id' => $orderId,
                 'first_name' => $profile['first_name'] ?? $attendee['first_name'] ?? null,
                 'last_name' => $profile['last_name'] ?? $attendee['last_name'] ?? null,
@@ -161,7 +161,6 @@ class EventbriteWebhookController extends Controller
                 \Illuminate\Support\Facades\Log::info('Ticket stored successfully', [
                     'ticket_id' => $eventbriteTicketId,
                     'order_id' => $orderId,
-                    'pregame_id' => $pregame->id,
                     'first_name' => $updateData['first_name'],
                     'email' => $updateData['email']
                 ]);
