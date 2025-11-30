@@ -176,12 +176,12 @@ class ProcessEventbriteOrder implements ShouldQueue
             $profile = $attendee['profile'] ?? [];
             
             // Parse the datetime from Eventbrite format to MySQL format
-            $redeemedAt = null;
+            $orderDate = null;
             if (isset($attendee['created'])) {
                 try {
-                    $redeemedAt = \Carbon\Carbon::parse($attendee['created'])->format('Y-m-d H:i:s');
+                    $orderDate = \Carbon\Carbon::parse($attendee['created'])->format('Y-m-d H:i:s');
                 } catch (\Exception $e) {
-                    Log::warning('Failed to parse redeemed_at', ['error' => $e->getMessage()]);
+                    Log::warning('Failed to parse order_date', ['error' => $e->getMessage()]);
                 }
             }
             
@@ -194,12 +194,8 @@ class ProcessEventbriteOrder implements ShouldQueue
                 'first_name' => $profile['first_name'] ?? $attendee['first_name'] ?? null,
                 'last_name' => $profile['last_name'] ?? $attendee['last_name'] ?? null,
                 'email' => $profile['email'] ?? $attendee['email'] ?? null,
+                'order_date' => $orderDate,
             ];
-            
-            // Only set redeemed_at if it's not already set
-            if (!$existingTicket || !$existingTicket->redeemed_at) {
-                $updateData['redeemed_at'] = $redeemedAt;
-            }
             
             try {
                 EventbriteTicket::updateOrCreate(

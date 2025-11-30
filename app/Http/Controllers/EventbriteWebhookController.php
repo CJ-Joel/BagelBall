@@ -357,10 +357,10 @@ class EventbriteWebhookController extends Controller
                     $profile = $attendee['profile'] ?? [];
                     
                     // Parse the datetime from Eventbrite format to MySQL format
-                    $redeemedAt = null;
+                    $orderDate = null;
                     if (isset($attendee['created'])) {
                         try {
-                            $redeemedAt = \Carbon\Carbon::parse($attendee['created'])->format('Y-m-d H:i:s');
+                            $orderDate = \Carbon\Carbon::parse($attendee['created'])->format('Y-m-d H:i:s');
                         } catch (\Exception $e) {
                             // If parsing fails, leave as null
                         }
@@ -376,12 +376,8 @@ class EventbriteWebhookController extends Controller
                         'first_name' => $profile['first_name'] ?? $attendee['first_name'] ?? null,
                         'last_name' => $profile['last_name'] ?? $attendee['last_name'] ?? null,
                         'email' => $profile['email'] ?? $attendee['email'] ?? null,
+                        'order_date' => $orderDate,
                     ];
-                    
-                    // Only set redeemed_at if it's not already set on existing record
-                    if (!$existingTicket || !$existingTicket->redeemed_at) {
-                        $updateData['redeemed_at'] = $redeemedAt;
-                    }
                     
                     EventbriteTicket::updateOrCreate(
                         ['eventbrite_ticket_id' => $eventbriteTicketId],
