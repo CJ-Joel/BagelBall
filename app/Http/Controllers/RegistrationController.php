@@ -74,35 +74,62 @@ class RegistrationController extends Controller
         // Get first ticket's info (primary attendee)
         $ticket = $anyTickets->first();
         
-        // Check if ticket has valid email
+        // Check if data has "Info Requested" or missing email
+        $hasInfoRequested = $this->hasInfoRequested($ticket);
         $hasValidEmail = !empty($ticket->email);
         
-        // If no valid email, poll the API for fresh data
-        if (!$hasValidEmail) {
+        // If missing email or has "Info Requested", poll the API for fresh data
+        if (!$hasValidEmail || $hasInfoRequested) {
             $this->fetchTicketsFromApi($orderId);
             // Refresh the ticket after API fetch
             $ticket = $ticket->fresh();
         }
         
-        // Return ticket info (whether it has email or not is ok)
+        // Check again after API fetch
+        $hasInfoRequested = $this->hasInfoRequested($ticket);
+        
+        // Return ticket info
         $response = [
             'valid' => true,
             'data' => [
-                'first_name' => $ticket->first_name ?? '',
-                'last_name' => $ticket->last_name ?? '',
-                'email' => $ticket->email ?? '',
+                'first_name' => $this->isInfoRequested($ticket->first_name) ? '' : ($ticket->first_name ?? ''),
+                'last_name' => $this->isInfoRequested($ticket->last_name) ? '' : ($ticket->last_name ?? ''),
+                'email' => $this->isInfoRequested($ticket->email) ? '' : ($ticket->email ?? ''),
                 'ticket_count' => $anyTickets->count()
             ]
         ];
 
+        // Add notice if info is still missing
+        if ($hasInfoRequested) {
+            $response['message'] = 'Some of your information is missing on Eventbrite. Please fill in the fields below.';
+        }
+
         // If there are 2 tickets, add friend info
         if ($anyTickets->count() === 2) {
             $friendTicket = $anyTickets->last();
-            $response['data']['friend_name'] = ($friendTicket->first_name ?? '') . ' ' . ($friendTicket->last_name ?? '');
-            $response['data']['friend_email'] = $friendTicket->email ?? '';
+            $response['data']['friend_name'] = ($this->isInfoRequested($friendTicket->first_name) ? '' : ($friendTicket->first_name ?? '')) . ' ' . ($this->isInfoRequested($friendTicket->last_name) ? '' : ($friendTicket->last_name ?? ''));
+            $response['data']['friend_email'] = $this->isInfoRequested($friendTicket->email) ? '' : ($friendTicket->email ?? '');
         }
         
         return response()->json($response);
+    }
+
+    /**
+     * Check if a field is "Info Requested" or empty
+     */
+    private function isInfoRequested($value): bool
+    {
+        return $value === 'Info Requested' || empty($value);
+    }
+
+    /**
+     * Check if ticket has any "Info Requested" fields
+     */
+    private function hasInfoRequested($ticket): bool
+    {
+        return $this->isInfoRequested($ticket->first_name) || 
+               $this->isInfoRequested($ticket->last_name) || 
+               $this->isInfoRequested($ticket->email);
     }
 
     /**
