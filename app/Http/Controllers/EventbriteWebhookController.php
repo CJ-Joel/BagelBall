@@ -27,24 +27,52 @@ class EventbriteWebhookController extends Controller
             // Only process order.placed events
             if ($action === 'order.placed') {
                 $apiUrl = $payload['api_url'];
-                $eventId = $payload['event_id'] ?? null;
                 
                 // Extract order ID from API URL (e.g., https://www.eventbriteapi.com/v3/orders/13830202873/)
                 preg_match('/orders\/(\d+)/', $apiUrl, $matches);
                 $orderId = $matches[1] ?? null;
                 
-                if (!$orderId || !$eventId) {
-                    Log::error('Could not extract order_id or event_id from webhook', [
+                if (!$orderId) {
+                    Log::error('Could not extract order_id from webhook', [
                         'api_url' => $apiUrl,
-                        'event_id' => $eventId,
                         'extracted_order_id' => $orderId,
                     ]);
-                    return response()->json(['status' => 'error', 'message' => 'Invalid webhook data'], 400);
+                    return response()->json(['status' => 'error', 'message' => 'Invalid order_id'], 400);
                 }
                 
-                Log::info('Processing order.placed event', ['order_id' => $orderId, 'event_id' => $eventId]);
-                
                 try {
+                    // Fetch order details from API to get event_id
+                    $token = config('services.eventbrite.token');
+                    if (!$token) {
+                        Log::error('Eventbrite token not configured');
+                        return response()->json(['status' => 'error', 'message' => 'Token not configured'], 500);
+                    }
+                    
+                    $response = Http::withToken($token)
+                        ->withoutVerifying()
+                        ->get($apiUrl . '?expand=attendees');
+                    
+                    if (!$response->successful()) {
+                        Log::error('Failed to fetch order details from API', [
+                            'order_id' => $orderId,
+                            'status' => $response->status(),
+                        ]);
+                        return response()->json(['status' => 'error', 'message' => 'Failed to fetch order'], 500);
+                    }
+                    
+                    $orderData = $response->json();
+                    $eventId = $orderData['event_id'] ?? null;
+                    
+                    if (!$eventId) {
+                        Log::error('Could not extract event_id from API response', [
+                            'order_id' => $orderId,
+                            'api_url' => $apiUrl,
+                        ]);
+                        return response()->json(['status' => 'error', 'message' => 'event_id not in response'], 400);
+                    }
+                    
+                    Log::info('Processing order.placed event', ['order_id' => $orderId, 'event_id' => $eventId]);
+                    
                     // Store as pending order
                     $pendingOrder = PendingEventbriteOrder::updateOrCreate(
                         ['eventbrite_order_id' => $orderId],
