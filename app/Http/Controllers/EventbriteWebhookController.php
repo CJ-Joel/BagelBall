@@ -3,11 +3,10 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\EventbriteTicket;
-use App\Models\PendingEventbriteOrder;
 use App\Models\PreGame;
-use App\Jobs\ProcessEventbriteOrder;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Carbon\Carbon;
 
 class EventbriteWebhookController extends Controller
 {
@@ -41,7 +40,7 @@ class EventbriteWebhookController extends Controller
                 }
                 
                 try {
-                    // Fetch order details from API to get event_id
+                    // Fetch order details from API
                     $token = config('services.eventbrite.token');
                     if (!$token) {
                         Log::error('Eventbrite token not configured');
@@ -73,26 +72,11 @@ class EventbriteWebhookController extends Controller
                     
                     Log::info('Processing order.placed event', ['order_id' => $orderId, 'event_id' => $eventId]);
                     
-                    // Store as pending order
-                    $pendingOrder = PendingEventbriteOrder::updateOrCreate(
-                        ['eventbrite_order_id' => $orderId],
-                        [
-                            'eventbrite_event_id' => $eventId,
-                            'api_url' => $apiUrl,
-                            'status' => 'pending',
-                            'retry_count' => 0,
-                        ]
-                    );
+                    // Store tickets immediately
+                    $attendees = $orderData['attendees'] ?? [];
+                    $this->storeTickets($orderId, $eventId, $attendees);
                     
-                    Log::info('Pending order stored', [
-                        'order_id' => $orderId,
-                        'event_id' => $eventId,
-                    ]);
-                    
-                    // Dispatch job immediately to start processing
-                    dispatch(new ProcessEventbriteOrder($pendingOrder));
-                    
-                    return response()->json(['status' => 'success', 'message' => 'Order queued for processing']);
+                    return response()->json(['status' => 'success', 'message' => 'Order stored']);
                 } catch (\Exception $e) {
                     Log::error('Exception handling webhook', [
                         'message' => $e->getMessage(),
@@ -103,11 +87,66 @@ class EventbriteWebhookController extends Controller
             }
         }
 
-        return response()->json(['status' => 'success']);
+        return response()->json(['status' => 'ignored']);
     }
 
-    // Note: Order processing is now handled by ProcessEventbriteOrder job
-    // which retries every 10 seconds for up to 2 minutes to allow attendee info to populate
+    /**
+     * Store tickets from attendee data
+     */
+    private function storeTickets(string $orderId, string $eventId, array $attendees): void
+    {
+        if (empty($attendees)) {
+            Log::warning('No attendees to store', ['order_id' => $orderId]);
+            return;
+        }
+
+        Log::info('Storing tickets from webhook', [
+            'order_id' => $orderId,
+            'event_id' => $eventId,
+            'attendee_count' => count($attendees),
+        ]);
+
+        foreach ($attendees as $attendee) {
+            $eventbriteTicketId = $attendee['id'] ?? null;
+            
+            if (!$eventbriteTicketId) {
+                Log::warning('Attendee missing ticket ID');
+                continue;
+            }
+            
+            $profile = $attendee['profile'] ?? [];
+            
+            // Parse the datetime from Eventbrite format to MySQL format
+            $orderDate = null;
+            if (isset($attendee['created'])) {
+                try {
+                    $orderDate = Carbon::parse($attendee['created'])->format('Y-m-d H:i:s');
+                } catch (\Exception $e) {
+                    Log::warning('Failed to parse order_date', ['error' => $e->getMessage()]);
+                }
+            }
+            
+            $updateData = [
+                'eventbrite_order_id' => $orderId,
+                'first_name' => $profile['first_name'] ?? $attendee['first_name'] ?? null,
+                'last_name' => $profile['last_name'] ?? $attendee['last_name'] ?? null,
+                'email' => $profile['email'] ?? $attendee['email'] ?? null,
+                'order_date' => $orderDate,
+                'pregame_id' => null, // Will be assigned when user registers
+            ];
+            
+            EventbriteTicket::updateOrCreate(
+                ['eventbrite_ticket_id' => $eventbriteTicketId],
+                $updateData
+            );
+            
+            Log::info('Ticket stored from webhook', [
+                'ticket_id' => $eventbriteTicketId,
+                'order_id' => $orderId,
+                'first_name' => $updateData['first_name'],
+            ]);
+        }
+    }
 
     // Show the logged webhook payloads from Laravel logs
     public function showLog()

@@ -41,7 +41,7 @@ class RegistrationController extends Controller
             ], 422);
         }
 
-        // Check if order exists at all
+        // Look up ticket by order_id
         $anyTickets = EventbriteTicket::where('eventbrite_order_id', $orderId)->get();
         
         if ($anyTickets->isEmpty()) {
@@ -71,39 +71,116 @@ class RegistrationController extends Controller
             ]);
         }
 
-        // Return first ticket's info (primary attendee)
+        // Get first ticket's info (primary attendee)
         $ticket = $anyTickets->first();
         
-        // Check if registration is incomplete (Info Requested)
-        $isIncomplete = $ticket->first_name === 'Info Requested' || 
-                       $ticket->last_name === 'Info Requested' ||
-                       empty($ticket->first_name) || 
-                       empty($ticket->last_name) ||
-                       empty($ticket->email);
+        // Check if ticket has valid email
+        $hasValidEmail = !empty($ticket->email);
         
+        // If no valid email, poll the API for fresh data
+        if (!$hasValidEmail) {
+            $this->fetchTicketsFromApi($orderId);
+            // Refresh the ticket after API fetch
+            $ticket = $ticket->fresh();
+        }
+        
+        // Return ticket info (whether it has email or not is ok)
         $response = [
             'valid' => true,
-            'incomplete' => $isIncomplete,
             'data' => [
-                'first_name' => $isIncomplete ? '' : $ticket->first_name,
-                'last_name' => $isIncomplete ? '' : $ticket->last_name,
-                'email' => $isIncomplete ? '' : $ticket->email,
+                'first_name' => $ticket->first_name ?? '',
+                'last_name' => $ticket->last_name ?? '',
+                'email' => $ticket->email ?? '',
                 'ticket_count' => $anyTickets->count()
             ]
         ];
 
-        if ($isIncomplete) {
-            $response['message'] = 'Your registration on Eventbrite is incomplete. Please make sure you have provided all information requested. You may still signup for a pregame.';
-        }
-
         // If there are 2 tickets, add friend info
-        if ($anyTickets->count() === 2 && !$isIncomplete) {
+        if ($anyTickets->count() === 2) {
             $friendTicket = $anyTickets->last();
-            $response['data']['friend_name'] = $friendTicket->first_name . ' ' . $friendTicket->last_name;
-            $response['data']['friend_email'] = $friendTicket->email;
+            $response['data']['friend_name'] = ($friendTicket->first_name ?? '') . ' ' . ($friendTicket->last_name ?? '');
+            $response['data']['friend_email'] = $friendTicket->email ?? '';
         }
         
         return response()->json($response);
+    }
+
+    /**
+     * Fetch tickets from Eventbrite API and update database
+     */
+    private function fetchTicketsFromApi(string $orderId): void
+    {
+        try {
+            $token = config('services.eventbrite.token');
+            if (!$token) {
+                \Log::warning('Eventbrite token not configured');
+                return;
+            }
+
+            $response = \Illuminate\Support\Facades\Http::withToken($token)
+                ->withoutVerifying()
+                ->timeout(10)
+                ->get("https://www.eventbriteapi.com/v3/orders/{$orderId}/?expand=attendees");
+
+            if (!$response->successful()) {
+                \Log::warning('Failed to fetch order from Eventbrite', [
+                    'order_id' => $orderId,
+                    'status' => $response->status(),
+                ]);
+                return;
+            }
+
+            $orderData = $response->json();
+            $attendees = $orderData['attendees'] ?? [];
+
+            if (empty($attendees)) {
+                return;
+            }
+
+            // Update tickets from API response
+            foreach ($attendees as $attendee) {
+                $eventbriteTicketId = $attendee['id'] ?? null;
+                
+                if (!$eventbriteTicketId) {
+                    continue;
+                }
+                
+                $profile = $attendee['profile'] ?? [];
+                
+                // Parse order date
+                $orderDate = null;
+                if (isset($attendee['created'])) {
+                    try {
+                        $orderDate = \Carbon\Carbon::parse($attendee['created'])->format('Y-m-d H:i:s');
+                    } catch (\Exception $e) {
+                        \Log::warning('Failed to parse order_date', ['error' => $e->getMessage()]);
+                    }
+                }
+                
+                EventbriteTicket::updateOrCreate(
+                    ['eventbrite_ticket_id' => $eventbriteTicketId],
+                    [
+                        'eventbrite_order_id' => $orderId,
+                        'first_name' => $profile['first_name'] ?? $attendee['first_name'] ?? null,
+                        'last_name' => $profile['last_name'] ?? $attendee['last_name'] ?? null,
+                        'email' => $profile['email'] ?? $attendee['email'] ?? null,
+                        'order_date' => $orderDate,
+                        'pregame_id' => null,
+                    ]
+                );
+            }
+
+            \Log::info('Tickets updated from API', [
+                'order_id' => $orderId,
+                'attendee_count' => count($attendees),
+            ]);
+
+        } catch (\Exception $e) {
+            \Log::error('Exception fetching tickets from Eventbrite', [
+                'order_id' => $orderId,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     // Handle signup submission

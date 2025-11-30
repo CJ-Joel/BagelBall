@@ -68,11 +68,19 @@ class ProcessEventbriteOrder implements ShouldQueue
             $orderData = $response->json();
             $attendees = $orderData['attendees'] ?? [];
 
+            Log::info('Order data fetched from API', [
+                'order_id' => $this->pendingOrder->eventbrite_order_id,
+                'has_attendees' => !empty($attendees),
+                'attendee_count' => count($attendees),
+                'full_response_keys' => array_keys($orderData),
+            ]);
+
             // Check if attendees are available yet
             if (empty($attendees)) {
                 Log::info('No attendees yet, scheduling retry', [
                     'order_id' => $this->pendingOrder->eventbrite_order_id,
                     'retry_count' => $this->pendingOrder->retry_count,
+                    'response_keys' => array_keys($orderData),
                 ]);
                 $this->scheduleRetry('No attendees available yet');
                 return;
