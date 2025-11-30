@@ -88,6 +88,12 @@ class EventbriteWebhookController extends Controller
         $eventId = $orderData['event_id'] ?? null;
         $orderId = $orderData['id'] ?? null;
 
+        \Illuminate\Support\Facades\Log::info('processOrder called', [
+            'event_id' => $eventId,
+            'order_id' => $orderId,
+            'has_attendees' => isset($orderData['attendees']) ? count($orderData['attendees']) : 0
+        ]);
+
         if (!$eventId || !$orderId) {
             \Illuminate\Support\Facades\Log::warning('Order missing event_id or order id', ['order' => $orderData]);
             return;
@@ -97,17 +103,21 @@ class EventbriteWebhookController extends Controller
         $pregame = PreGame::where('eventbrite_event_id', $eventId)->first();
         
         if (!$pregame) {
-            \Illuminate\Support\Facades\Log::warning('No PreGame found for event_id', ['event_id' => $eventId]);
+            \Illuminate\Support\Facades\Log::warning('No PreGame found for event_id', ['event_id' => $eventId, 'available_event_ids' => PreGame::pluck('eventbrite_event_id')->toArray()]);
             return;
         }
 
+        \Illuminate\Support\Facades\Log::info('PreGame found', ['pregame_id' => $pregame->id, 'pregame_name' => $pregame->name]);
+
         // Process attendees
         $attendees = $orderData['attendees'] ?? [];
+        \Illuminate\Support\Facades\Log::info('Processing attendees', ['count' => count($attendees)]);
         
         foreach ($attendees as $attendee) {
             $eventbriteTicketId = $attendee['id'] ?? null;
             
             if (!$eventbriteTicketId) {
+                \Illuminate\Support\Facades\Log::warning('Attendee missing ticket ID', ['attendee' => $attendee]);
                 continue;
             }
             
@@ -119,7 +129,7 @@ class EventbriteWebhookController extends Controller
                 try {
                     $redeemedAt = \Carbon\Carbon::parse($attendee['created'])->format('Y-m-d H:i:s');
                 } catch (\Exception $e) {
-                    // If parsing fails, leave as null
+                    \Illuminate\Support\Facades\Log::warning('Failed to parse redeemed_at', ['error' => $e->getMessage()]);
                 }
             }
             
@@ -140,18 +150,28 @@ class EventbriteWebhookController extends Controller
                 $updateData['redeemed_at'] = $redeemedAt;
             }
             
-            EventbriteTicket::updateOrCreate(
-                [
-                    'eventbrite_ticket_id' => $eventbriteTicketId,
-                ],
-                $updateData
-            );
-            
-            \Illuminate\Support\Facades\Log::info('Ticket stored', [
-                'ticket_id' => $eventbriteTicketId,
-                'order_id' => $orderId,
-                'pregame_id' => $pregame->id
-            ]);
+            try {
+                EventbriteTicket::updateOrCreate(
+                    [
+                        'eventbrite_ticket_id' => $eventbriteTicketId,
+                    ],
+                    $updateData
+                );
+                
+                \Illuminate\Support\Facades\Log::info('Ticket stored successfully', [
+                    'ticket_id' => $eventbriteTicketId,
+                    'order_id' => $orderId,
+                    'pregame_id' => $pregame->id,
+                    'first_name' => $updateData['first_name'],
+                    'email' => $updateData['email']
+                ]);
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error('Failed to store ticket', [
+                    'ticket_id' => $eventbriteTicketId,
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString()
+                ]);
+            }
         }
     }
 
