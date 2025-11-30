@@ -3,8 +3,11 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\EventbriteTicket;
+use App\Models\PendingEventbriteOrder;
 use App\Models\PreGame;
+use App\Jobs\ProcessEventbriteOrder;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class EventbriteWebhookController extends Controller
 {
@@ -14,165 +17,69 @@ class EventbriteWebhookController extends Controller
         $payload = $request->all();
         
         // Log all webhook calls for debugging
-        \Illuminate\Support\Facades\Log::info('Eventbrite webhook received', ['payload' => $payload]);
+        Log::info('Eventbrite webhook received', ['payload' => $payload]);
 
         // Check if this is an order.placed webhook with api_url
         if (isset($payload['api_url']) && isset($payload['config']['action'])) {
             $action = $payload['config']['action'];
-            \Illuminate\Support\Facades\Log::info('Webhook action detected', ['action' => $action]);
+            Log::info('Webhook action detected', ['action' => $action]);
             
             // Only process order.placed events
             if ($action === 'order.placed') {
                 $apiUrl = $payload['api_url'];
-                \Illuminate\Support\Facades\Log::info('Processing order.placed event', ['apiUrl' => $apiUrl]);
+                $eventId = $payload['event_id'] ?? null;
+                
+                // Extract order ID from API URL (e.g., https://www.eventbriteapi.com/v3/orders/13830202873/)
+                preg_match('/orders\/(\d+)/', $apiUrl, $matches);
+                $orderId = $matches[1] ?? null;
+                
+                if (!$orderId || !$eventId) {
+                    Log::error('Could not extract order_id or event_id from webhook', [
+                        'api_url' => $apiUrl,
+                        'event_id' => $eventId,
+                        'extracted_order_id' => $orderId,
+                    ]);
+                    return response()->json(['status' => 'error', 'message' => 'Invalid webhook data'], 400);
+                }
+                
+                Log::info('Processing order.placed event', ['order_id' => $orderId, 'event_id' => $eventId]);
                 
                 try {
-                    // Fetch the full order details from Eventbrite API
-                    $token = config('services.eventbrite.token');
-                    \Illuminate\Support\Facades\Log::info('Eventbrite token check', ['hasToken' => !empty($token)]);
+                    // Store as pending order
+                    $pendingOrder = PendingEventbriteOrder::updateOrCreate(
+                        ['eventbrite_order_id' => $orderId],
+                        [
+                            'eventbrite_event_id' => $eventId,
+                            'api_url' => $apiUrl,
+                            'status' => 'pending',
+                            'retry_count' => 0,
+                        ]
+                    );
                     
-                    if (!$token) {
-                        \Illuminate\Support\Facades\Log::error('Eventbrite token not configured');
-                        return response()->json(['status' => 'error', 'message' => 'Token not configured'], 500);
-                    }
-
-                    \Illuminate\Support\Facades\Log::info('Making API request', ['url' => $apiUrl, 'method' => 'GET']);
+                    Log::info('Pending order stored', [
+                        'order_id' => $orderId,
+                        'event_id' => $eventId,
+                    ]);
                     
-                    $response = Http::withToken($token)
-                        ->withoutVerifying()
-                        ->timeout(10)
-                        ->retry(2, 100)
-                        ->get($apiUrl . '?expand=attendees');
-
-                    \Illuminate\Support\Facades\Log::info('API response received', ['status' => $response->status()]);
-
-                    if ($response->successful()) {
-                        $orderData = $response->json();
-                        \Illuminate\Support\Facades\Log::info('Eventbrite order fetched', ['order' => $orderData]);
-                        
-                        // Process the order data
-                        $this->processOrder($orderData);
-                        
-                        return response()->json(['status' => 'success', 'message' => 'Order processed']);
-                    } else {
-                        \Illuminate\Support\Facades\Log::error('Failed to fetch order from Eventbrite', [
-                            'status' => $response->status(),
-                            'body' => $response->body(),
-                            'apiUrl' => $apiUrl
-                        ]);
-                        return response()->json(['status' => 'error', 'message' => 'Failed to fetch order'], 500);
-                    }
+                    // Dispatch job immediately to start processing
+                    dispatch(new ProcessEventbriteOrder($pendingOrder));
+                    
+                    return response()->json(['status' => 'success', 'message' => 'Order queued for processing']);
                 } catch (\Exception $e) {
-                    \Illuminate\Support\Facades\Log::error('Exception fetching Eventbrite order', [
+                    Log::error('Exception handling webhook', [
                         'message' => $e->getMessage(),
-                        'trace' => $e->getTraceAsString(),
-                        'apiUrl' => $apiUrl
+                        'trace' => $e->getTraceAsString()
                     ]);
                     return response()->json(['status' => 'error', 'message' => $e->getMessage()], 500);
                 }
             }
         }
 
-        // Legacy: Process order if attendees are directly in payload
-        if (isset($payload['attendees']) && is_array($payload['attendees'])) {
-            \Illuminate\Support\Facades\Log::info('Processing order from payload attendees');
-            $this->processOrder($payload);
-        }
-
         return response()->json(['status' => 'success']);
     }
 
-    // Process order data and store tickets
-    private function processOrder(array $orderData)
-    {
-        $eventId = $orderData['event_id'] ?? null;
-        $orderId = $orderData['id'] ?? null;
-
-        \Illuminate\Support\Facades\Log::info('processOrder called', [
-            'event_id' => $eventId,
-            'order_id' => $orderId,
-            'has_attendees' => isset($orderData['attendees']) ? count($orderData['attendees']) : 0
-        ]);
-
-        if (!$eventId || !$orderId) {
-            \Illuminate\Support\Facades\Log::warning('Order missing event_id or order id', ['order' => $orderData]);
-            return;
-        }
-
-        // Find the matching PreGame
-        $pregame = PreGame::where('eventbrite_event_id', $eventId)->first();
-        
-        if (!$pregame) {
-            \Illuminate\Support\Facades\Log::warning('No PreGame found for event_id', ['event_id' => $eventId, 'available_event_ids' => PreGame::pluck('eventbrite_event_id')->toArray()]);
-            return;
-        }
-
-        \Illuminate\Support\Facades\Log::info('PreGame found', ['pregame_id' => $pregame->id, 'pregame_name' => $pregame->name]);
-
-        // Process attendees
-        $attendees = $orderData['attendees'] ?? [];
-        \Illuminate\Support\Facades\Log::info('Processing attendees', ['count' => count($attendees)]);
-        
-        foreach ($attendees as $attendee) {
-            $eventbriteTicketId = $attendee['id'] ?? null;
-            
-            if (!$eventbriteTicketId) {
-                \Illuminate\Support\Facades\Log::warning('Attendee missing ticket ID', ['attendee' => $attendee]);
-                continue;
-            }
-            
-            $profile = $attendee['profile'] ?? [];
-            
-            // Parse the datetime from Eventbrite format to MySQL format
-            $redeemedAt = null;
-            if (isset($attendee['created'])) {
-                try {
-                    $redeemedAt = \Carbon\Carbon::parse($attendee['created'])->format('Y-m-d H:i:s');
-                } catch (\Exception $e) {
-                    \Illuminate\Support\Facades\Log::warning('Failed to parse redeemed_at', ['error' => $e->getMessage()]);
-                }
-            }
-            
-            // Check if ticket already exists
-            $existingTicket = EventbriteTicket::where('eventbrite_ticket_id', $eventbriteTicketId)->first();
-            
-            // Build update array, preserving existing redeemed_at if already set
-            // NOTE: Do NOT set pregame_id here - tickets are only assigned to a pregame when user registers
-            $updateData = [
-                'eventbrite_order_id' => $orderId,
-                'first_name' => $profile['first_name'] ?? $attendee['first_name'] ?? null,
-                'last_name' => $profile['last_name'] ?? $attendee['last_name'] ?? null,
-                'email' => $profile['email'] ?? $attendee['email'] ?? null,
-            ];
-            
-            // Only set redeemed_at if it's not already set on existing record
-            if (!$existingTicket || !$existingTicket->redeemed_at) {
-                $updateData['redeemed_at'] = $redeemedAt;
-            }
-            
-            try {
-                EventbriteTicket::updateOrCreate(
-                    [
-                        'eventbrite_ticket_id' => $eventbriteTicketId,
-                    ],
-                    $updateData
-                );
-                
-                \Illuminate\Support\Facades\Log::info('Ticket stored successfully', [
-                    'ticket_id' => $eventbriteTicketId,
-                    'order_id' => $orderId,
-                    'first_name' => $updateData['first_name'],
-                    'email' => $updateData['email']
-                ]);
-            } catch (\Exception $e) {
-                \Illuminate\Support\Facades\Log::error('Failed to store ticket', [
-                    'ticket_id' => $eventbriteTicketId,
-                    'error' => $e->getMessage(),
-                    'trace' => $e->getTraceAsString()
-                ]);
-            }
-        }
-    }
+    // Note: Order processing is now handled by ProcessEventbriteOrder job
+    // which retries every 10 seconds for up to 2 minutes to allow attendee info to populate
 
     // Show the logged webhook payloads from Laravel logs
     public function showLog()
