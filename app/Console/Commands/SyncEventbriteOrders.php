@@ -136,7 +136,7 @@ class SyncEventbriteOrders extends Command
                             'first_name' => $profile['first_name'] ?? $attendee['first_name'] ?? null,
                             'last_name' => $profile['last_name'] ?? $attendee['last_name'] ?? null,
                             'email' => $profile['email'] ?? $attendee['email'] ?? null,
-                            'redeemed_at' => $attendee['created'] ?? null,
+                            'order_date' => $attendee['created'] ?? null,
                         ]
                     );
                     
