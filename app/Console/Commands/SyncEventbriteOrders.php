@@ -126,18 +126,28 @@ class SyncEventbriteOrders extends Command
 
                     $profile = $attendee['profile'] ?? [];
                     
+                    // Find existing ticket to preserve redeemed_at if already set
+                    $existingTicket = EventbriteTicket::where('eventbrite_ticket_id', $eventbriteTicketId)->first();
+                    
+                    $updateData = [
+                        'pregame_id' => $pregameId,
+                        'eventbrite_order_id' => $orderId,
+                        'first_name' => $profile['first_name'] ?? $attendee['first_name'] ?? null,
+                        'last_name' => $profile['last_name'] ?? $attendee['last_name'] ?? null,
+                        'email' => $profile['email'] ?? $attendee['email'] ?? null,
+                        'order_date' => $attendee['created'] ?? null,
+                    ];
+                    
+                    // Only set redeemed_at if it's not already set
+                    if (!$existingTicket || is_null($existingTicket->redeemed_at)) {
+                        $updateData['redeemed_at'] = null;
+                    }
+                    
                     $ticket = EventbriteTicket::updateOrCreate(
                         [
                             'eventbrite_ticket_id' => $eventbriteTicketId,
                         ],
-                        [
-                            'pregame_id' => $pregameId,
-                            'eventbrite_order_id' => $orderId,
-                            'first_name' => $profile['first_name'] ?? $attendee['first_name'] ?? null,
-                            'last_name' => $profile['last_name'] ?? $attendee['last_name'] ?? null,
-                            'email' => $profile['email'] ?? $attendee['email'] ?? null,
-                            'order_date' => $attendee['created'] ?? null,
-                        ]
+                        $updateData
                     );
                     
                     $totalAttendees++;
