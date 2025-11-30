@@ -42,7 +42,7 @@ class EventbriteWebhookController extends Controller
                         ->withoutVerifying()
                         ->timeout(10)
                         ->retry(2, 100)
-                        ->get($apiUrl);
+                        ->get($apiUrl . '?expand=attendees');
 
                     \Illuminate\Support\Facades\Log::info('API response received', ['status' => $response->status()]);
 
