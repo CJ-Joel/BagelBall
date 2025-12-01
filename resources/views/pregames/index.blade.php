@@ -12,7 +12,7 @@
                         <span class="px-2 py-1 rounded bg-gray-700 text-xs w-fit">{{ $pregame->label() }}</span>
                     </div>
                     <div class="mb-2 text-gray-400 text-sm">
-                        {{ \Illuminate\Support\Carbon::parse($pregame->start_time)->format('M d, Y H:i') }} @ {{ $pregame->location }}
+                        {{ \Illuminate\Support\Carbon::parse($pregame->start_time)->format('M d, Y g:i A') }} @ {{ $pregame->location }}
                     </div>
                     <div class="mb-3 text-gray-300 text-sm">{{ $pregame->description }}</div>
                     <div class="mb-3 text-xs text-gray-400">Spots left: {{ $pregame->spotsRemaining() }}</div>
