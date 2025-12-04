@@ -22,3 +22,6 @@ Route::post('/pregames/{pregame}/signup', [\App\Http\Controllers\RegistrationCon
 Route::post('/pregames/validate-order', [\App\Http\Controllers\RegistrationController::class, 'validateOrderId'])->name('pregames.validate.order');
 
 Route::get('/checkout/success', [\App\Http\Controllers\CheckoutController::class, 'success'])->name('checkout.success');
+
+// Admin routes
+Route::get('/admin', [\App\Http\Controllers\AdminController::class, 'ticketsSoldByDay'])->name('admin.tickets-sold-by-day');
