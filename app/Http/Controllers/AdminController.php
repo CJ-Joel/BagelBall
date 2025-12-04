@@ -12,6 +12,25 @@ class AdminController extends Controller
 {
     public function ticketsSoldByDay()
     {
+        // Allow access only with a valid admin token in the querystring.
+        $rawToken = request()->query('token');
+        if (! $rawToken) {
+            return redirect()->route('admin.login');
+        }
+
+        // validate token against admin_tokens (hashed)
+        $tokenRecord = \App\Models\AdminToken::where('expires_at', '>=', now())->get();
+        $valid = false;
+        foreach ($tokenRecord as $r) {
+            if (\Illuminate\Support\Facades\Hash::check($rawToken, $r->token_hash)) {
+                $valid = true;
+                break;
+            }
+        }
+        if (! $valid) {
+            return redirect()->route('admin.login');
+        }
+
         // Current year cumulative from EventbriteTicket
         // Adjust order_date by subtracting 5 hours to account for timezone differences
         $currentTickets = EventbriteTicket::select(

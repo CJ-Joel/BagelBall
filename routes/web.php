@@ -23,5 +23,9 @@ Route::post('/pregames/validate-order', [\App\Http\Controllers\RegistrationContr
 
 Route::get('/checkout/success', [\App\Http\Controllers\CheckoutController::class, 'success'])->name('checkout.success');
 
-// Admin routes
+// Admin auth (password form + token)
+Route::get('/admin/login', [\App\Http\Controllers\AdminAuthController::class, 'showLogin'])->name('admin.login');
+Route::post('/admin/login', [\App\Http\Controllers\AdminAuthController::class, 'login'])->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class])->name('admin.login.post');
+
+// Admin page (token in querystring)
 Route::get('/admin', [\App\Http\Controllers\AdminController::class, 'ticketsSoldByDay'])->name('admin.tickets-sold-by-day');

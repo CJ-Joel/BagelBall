@@ -32,6 +32,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // Register JWT middleware
         $middleware->alias([
             'jwt' => ValidateJwtToken::class,
+            'basic.env' => \App\Http\Middleware\EnvBasicAuth::class,
         ]);
         
         // Explicitly configure web middleware
