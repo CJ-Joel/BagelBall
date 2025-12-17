@@ -23,8 +23,8 @@ class EventbriteWebhookController extends Controller
             $action = $payload['config']['action'];
             Log::info('Webhook action detected', ['action' => $action]);
             
-            // Only process order.placed events
-            if ($action === 'order.placed') {
+            // Process any order.* event (placed, updated, changed, refunded, etc.)
+            if (strpos($action, 'order.') === 0) {
                 $apiUrl = $payload['api_url'];
                 
                 // Extract order ID from API URL (e.g., https://www.eventbriteapi.com/v3/orders/13830202873/)
@@ -70,7 +70,7 @@ class EventbriteWebhookController extends Controller
                         return response()->json(['status' => 'error', 'message' => 'event_id not in response'], 400);
                     }
                     
-                    Log::info('Processing order.placed event', ['order_id' => $orderId, 'event_id' => $eventId]);
+                    Log::info('Processing order event', ['action' => $action, 'order_id' => $orderId, 'event_id' => $eventId]);
                     
                     // Store tickets immediately
                     $attendees = $orderData['attendees'] ?? [];
@@ -132,7 +132,8 @@ class EventbriteWebhookController extends Controller
                 'last_name' => $profile['last_name'] ?? $attendee['last_name'] ?? null,
                 'email' => $profile['email'] ?? $attendee['email'] ?? null,
                 'order_date' => $orderDate,
-                'pregame_id' => null, // Will be assigned when user registers
+                'barcode_id' => $this->extractBarcodeId($attendee),
+                'gender' => $this->extractGender($attendee),
             ];
             
             EventbriteTicket::updateOrCreate(
@@ -146,6 +147,52 @@ class EventbriteWebhookController extends Controller
                 'first_name' => $updateData['first_name'],
             ]);
         }
+    }
+
+    /**
+     * Try to extract a barcode id from common Eventbrite attendee/order payload shapes.
+     */
+    private function extractBarcodeId(array $attendee): ?string
+    {
+        if (!empty($attendee['barcodes']) && is_array($attendee['barcodes'])) {
+            foreach ($attendee['barcodes'] as $b) {
+                if (!empty($b['barcode'])) return $b['barcode'];
+                if (!empty($b['value'])) return $b['value'];
+                if (!empty($b['code'])) return $b['code'];
+            }
+        }
+
+        if (!empty($attendee['barcode'])) return $attendee['barcode'];
+        if (!empty($attendee['code'])) return $attendee['code'];
+
+        return null;
+    }
+
+    /**
+     * Try to extract gender from profile or answers in the attendee payload.
+     */
+    private function extractGender(array $attendee): ?string
+    {
+        $profile = $attendee['profile'] ?? null;
+
+        if (is_array($profile)) {
+            if (!empty($profile['gender'])) return $profile['gender'];
+
+            if (!empty($profile['answers']) && is_array($profile['answers'])) {
+                foreach ($profile['answers'] as $answer) {
+                    $question = $answer['question'] ?? $answer['label'] ?? '';
+                    if ($question && stripos($question, 'gender') !== false) {
+                        return $answer['answer'] ?? $answer['value'] ?? null;
+                    }
+                }
+            }
+
+            foreach (['gender_raw', 'sex'] as $k) {
+                if (!empty($profile[$k])) return $profile[$k];
+            }
+        }
+
+        return null;
     }
 
     // Show the logged webhook payloads from Laravel logs
@@ -438,12 +485,13 @@ class EventbriteWebhookController extends Controller
                     
                     // Build update array, preserving existing redeemed_at if already set
                     $updateData = [
-                        'pregame_id' => null, // Will be assigned when user registers
                         'eventbrite_order_id' => $orderId,
                         'first_name' => $profile['first_name'] ?? $attendee['first_name'] ?? null,
                         'last_name' => $profile['last_name'] ?? $attendee['last_name'] ?? null,
                         'email' => $profile['email'] ?? $attendee['email'] ?? null,
                         'order_date' => $orderDate,
+                        'barcode_id' => $this->extractBarcodeId($attendee),
+                        'gender' => $this->extractGender($attendee),
                     ];
                     
                     EventbriteTicket::updateOrCreate(

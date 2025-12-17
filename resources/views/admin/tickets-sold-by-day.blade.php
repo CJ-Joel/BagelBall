@@ -37,10 +37,21 @@
         <div class="chart-container">
             <canvas id="ticketsChart"></canvas>
         </div>
-        <div style="margin-top:24px; display:flex; gap:16px; align-items:center;">
+        <div style="margin-top:24px; display:flex; gap:16px; align-items:flex-start;">
             <div style="padding:16px; border:1px solid #e5e7eb; border-radius:8px; background:#fafafa;">
                 <div style="font-size:14px; color:#6b7280;">People signed up for pregames (paid)</div>
                 <div style="font-size:28px; font-weight:600; color:#111827;">{{ $totalSignedUp }}</div>
+            </div>
+            <div style="width:260px; height:200px; padding:12px; border:1px solid #e5e7eb; border-radius:8px; background:#fafafa; display:flex; flex-direction:column; align-items:center; justify-content:flex-start;">
+                <div style="font-size:14px; color:#6b7280; margin-bottom:8px;">Attendee Gender</div>
+                <div style="width:160px; height:160px; display:flex; align-items:center; justify-content:center;">
+                    <canvas id="genderPie" style="max-width:100%; max-height:100%;"></canvas>
+                </div>
+                <div style="font-size:12px; color:#6b7280; margin-top:8px; display:flex; gap:8px; justify-content:space-between; width:100%;">
+                    <div>Male: <strong>{{ $genderCounts['male'] }}</strong></div>
+                    <div>Female: <strong>{{ $genderCounts['female'] }}</strong></div>
+                    <div>Unknown: <strong>{{ $genderCounts['unknown'] }}</strong></div>
+                </div>
             </div>
             <div style="flex:1; padding:16px; border:1px solid #e5e7eb; border-radius:8px; background:#fafafa;">
                 <div style="font-size:14px; color:#6b7280; margin-bottom:8px;">Breakdown per pregame (paid)</div>
@@ -134,5 +145,28 @@
             }
         });
     </script>
+        <script>
+            // Gender pie chart
+            const genderCtx = document.getElementById('genderPie').getContext('2d');
+            new Chart(genderCtx, {
+                type: 'pie',
+                data: {
+                    labels: ['Male', 'Female', 'Unknown'],
+                    datasets: [{
+                        data: [{{ $genderCounts['male'] }}, {{ $genderCounts['female'] }}, {{ $genderCounts['unknown'] }}],
+                        backgroundColor: ['#3b82f6', '#ec4899', '#9ca3af'],
+                        borderColor: '#ffffff',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+        </script>
 </body>
 </html>

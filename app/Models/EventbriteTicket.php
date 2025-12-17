@@ -13,6 +13,8 @@ class EventbriteTicket extends Model
         'first_name',
         'last_name',
         'email',
+        'barcode_id',
+        'gender',
         'redeemed_at',
         'order_date'
     ];

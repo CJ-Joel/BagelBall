@@ -152,12 +152,26 @@ class AdminController extends Controller
             ];
         }
 
+        // Gender breakdown from EventbriteTicket (normalize common values)
+        $genderRow = EventbriteTicket::selectRaw(
+            "SUM(CASE WHEN LOWER(TRIM(gender)) IN ('male','m') THEN 1 ELSE 0 END) as male_count, " .
+            "SUM(CASE WHEN LOWER(TRIM(gender)) IN ('female','f') THEN 1 ELSE 0 END) as female_count, " .
+            "SUM(CASE WHEN gender IS NULL OR TRIM(gender) = '' THEN 1 ELSE 0 END) as unknown_count"
+        )->first();
+
+        $genderCounts = [
+            'male' => (int)($genderRow->male_count ?? 0),
+            'female' => (int)($genderRow->female_count ?? 0),
+            'unknown' => (int)($genderRow->unknown_count ?? 0),
+        ];
+
         return view('admin.tickets-sold-by-day', [
             'labels' => $labels,
             'currentCounts' => $alignedCurrent,
             'historicalCounts' => $alignedHistorical,
             'totalSignedUp' => $totalSignedUp,
             'pregameBreakdown' => $pregameBreakdown,
+            'genderCounts' => $genderCounts,
         ]);
     }
 }

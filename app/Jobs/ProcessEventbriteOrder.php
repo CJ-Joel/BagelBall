@@ -182,6 +182,10 @@ class ProcessEventbriteOrder implements ShouldQueue
             }
             
             $profile = $attendee['profile'] ?? [];
+
+            // Extract barcode id and gender from attendee payload
+            $barcodeId = $this->extractBarcodeId($attendee);
+            $gender = $this->extractGender($attendee);
             
             // Parse the datetime from Eventbrite format to MySQL format
             $orderDate = null;
@@ -203,6 +207,8 @@ class ProcessEventbriteOrder implements ShouldQueue
                 'last_name' => $profile['last_name'] ?? $attendee['last_name'] ?? null,
                 'email' => $profile['email'] ?? $attendee['email'] ?? null,
                 'order_date' => $orderDate,
+                'barcode_id' => $barcodeId,
+                'gender' => $gender,
             ];
             
             try {
@@ -223,5 +229,51 @@ class ProcessEventbriteOrder implements ShouldQueue
                 ]);
             }
         }
+    }
+
+    /**
+     * Try to extract a barcode id from common Eventbrite attendee/order payload shapes.
+     */
+    private function extractBarcodeId(array $attendee): ?string
+    {
+        if (!empty($attendee['barcodes']) && is_array($attendee['barcodes'])) {
+            foreach ($attendee['barcodes'] as $b) {
+                if (!empty($b['barcode'])) return $b['barcode'];
+                if (!empty($b['value'])) return $b['value'];
+                if (!empty($b['code'])) return $b['code'];
+            }
+        }
+
+        if (!empty($attendee['barcode'])) return $attendee['barcode'];
+        if (!empty($attendee['code'])) return $attendee['code'];
+
+        return null;
+    }
+
+    /**
+     * Try to extract gender from profile or answers in the attendee payload.
+     */
+    private function extractGender(array $attendee): ?string
+    {
+        $profile = $attendee['profile'] ?? null;
+
+        if (is_array($profile)) {
+            if (!empty($profile['gender'])) return $profile['gender'];
+
+            if (!empty($profile['answers']) && is_array($profile['answers'])) {
+                foreach ($profile['answers'] as $answer) {
+                    $question = $answer['question'] ?? $answer['label'] ?? '';
+                    if ($question && stripos($question, 'gender') !== false) {
+                        return $answer['answer'] ?? $answer['value'] ?? null;
+                    }
+                }
+            }
+
+            foreach (['gender_raw', 'sex'] as $k) {
+                if (!empty($profile[$k])) return $profile[$k];
+            }
+        }
+
+        return null;
     }
 }
