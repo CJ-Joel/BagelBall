@@ -4,7 +4,6 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Check-in Scanner</title>
-  <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/minified/html5-qrcode.min.js"></script>
   <style>
     :root{--bg:#0b1220;--card:#111827;--muted:#9ca3af;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444;--line:#273244}
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:#e5e7eb;margin:0;padding:16px}
@@ -21,7 +20,7 @@
     .status.ok{color:var(--ok)}
     .status.warn{color:var(--warn)}
     .status.bad{color:var(--bad)}
-    #scanner{width:100%;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:#000}
+    #preview{width:100%;border-radius:14px;border:1px solid var(--line);background:#000;max-height:400px;object-fit:cover}
     .kpis{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
     .kpi{flex:1 1 140px;border:1px solid var(--line);border-radius:12px;padding:10px;background:#0b1220}
     .kpi .label{font-size:12px;color:var(--muted)}
@@ -35,8 +34,7 @@
     .pill.ok{border-color:rgba(34,197,94,.45);color:var(--ok)}
     .pill.warn{border-color:rgba(245,158,11,.45);color:var(--warn)}
     .pill.bad{border-color:rgba(239,68,68,.45);color:var(--bad)}
-    input{width:100%;padding:12px;border-radius:12px;border:1px solid var(--line);background:#0b1220;color:#e5e7eb;font-size:16px}
-    #html5-qrcode-button-camera,#html5-qrcode-button-file{display:none}
+    input{width:100%;padding:12px;border-radius:12px;border:1px solid var(--line);background:#0b1220;color:#e5e7eb;font-size:16px;box-sizing:border-box}
   </style>
 </head>
 <body>
@@ -44,7 +42,7 @@
     <div class="top">
       <div>
         <div style="font-size:20px;font-weight:900">Check-in scanner</div>
-        <div class="muted">Scan 2D ticket barcodes (QR, PDF417, etc.)</div>
+        <div class="muted">Scan or manually enter barcode</div>
       </div>
       <form method="post" action="{{ route('checkin.logout') }}">
         <button class="btn" type="submit">Logout</button>
@@ -54,12 +52,12 @@
     <div class="row">
       <div class="left">
         <div class="card">
-          <div id="scanner" style="width:100%;aspect-ratio:1/1"></div>
+          <video id="preview" playsinline muted autoplay></video>
 
           <div class="kpis">
             <div class="kpi">
               <div class="label">Status</div>
-              <div id="status" class="value status">Starting…</div>
+              <div id="status" class="value status">Ready</div>
             </div>
             <div class="kpi">
               <div class="label">Last scan</div>
@@ -70,16 +68,12 @@
               <div id="count" class="value">0</div>
             </div>
           </div>
-
-          <div style="margin-top:10px" class="muted">
-            Tip: Hold ticket barcode in front of camera. For best results use good lighting.
-          </div>
         </div>
 
         <div class="card" style="margin-top:12px">
-          <div style="font-weight:800;margin-bottom:8px">Manual entry (fallback)</div>
-          <input id="manual" placeholder="Paste barcode value and press Enter" autocomplete="off" inputmode="text" />
-          <div class="muted" style="margin-top:8px">Works if camera is unavailable or for testing.</div>
+          <div style="font-weight:800;margin-bottom:8px">Enter barcode</div>
+          <input id="manual" placeholder="Scan or paste barcode, then press Enter" autocomplete="off" inputmode="text" autofocus />
+          <div class="muted" style="margin-top:8px">Works on any device. Camera will auto-start if available.</div>
         </div>
       </div>
 
@@ -97,7 +91,7 @@
     const csrf = @json(csrf_token());
 
     const els = {
-      scanner: document.getElementById('scanner'),
+      preview: document.getElementById('preview'),
       status: document.getElementById('status'),
       lastName: document.getElementById('lastName'),
       count: document.getElementById('count'),
@@ -170,7 +164,7 @@
 
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setStatus('Error (' + res.status + ')', 'bad');
+        setStatus('Error', 'bad');
         beep(false);
         return;
       }
@@ -192,25 +186,19 @@
       beep(good);
     }
 
-    const html5QrcodeScanner = new Html5QrcodeScanner(
-      "scanner",
-      { 
-        fps: 10,
-        qrbox: { width: 250, height: 250 },
-        supportedScanTypes: ['SCAN_TYPE_CAMERA']
-      },
-      false
-    );
+    // Try to start camera
+    if (navigator.mediaDevices?.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: 'environment' },
+        audio: false 
+      })
+      .then(stream => {
+        els.preview.srcObject = stream;
+      })
+      .catch(() => {});
+    }
 
-    html5QrcodeScanner.render(
-      (decodedText) => {
-        lookup(decodedText.trim());
-      },
-      (err) => {}
-    );
-
-    setStatus('Ready', 'ok');
-
+    // Manual entry
     els.manual.addEventListener('keydown', async (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
