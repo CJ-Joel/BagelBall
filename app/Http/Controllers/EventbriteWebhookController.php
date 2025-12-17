@@ -15,6 +15,15 @@ class EventbriteWebhookController extends Controller
     {
         $payload = $request->all();
         
+        // Log ALL webhook calls BEFORE processing
+        \Log::info('=== WEBHOOK REQUEST RECEIVED ===', [
+            'method' => $request->method(),
+            'path' => $request->path(),
+            'content_type' => $request->header('Content-Type'),
+            'payload_keys' => array_keys($payload),
+            'full_payload' => $payload,
+        ]);
+
         // Log all webhook calls for debugging - ALWAYS log
         Log::info('Eventbrite webhook received - raw payload', [
             'keys' => array_keys($payload),
@@ -69,6 +78,7 @@ class EventbriteWebhookController extends Controller
                 Log::info('Processing attendee event', ['action' => $action, 'event_id' => $eventId, 'attendee_id' => $attendeeId]);
                 $this->processAttendeeWebhook($eventId, $attendeeId, $apiUrl);
                 return response()->json(['status' => 'success', 'message' => 'Attendee processed']);
+            }
         }
 
         Log::warning('Eventbrite webhook received but not processed', [
