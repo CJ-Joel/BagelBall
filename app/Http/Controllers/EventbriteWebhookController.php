@@ -136,7 +136,11 @@ class EventbriteWebhookController extends Controller
                 'gender' => $this->extractGender($attendee),
             ];
             
-            EventbriteTicket::updateOrCreate(
+            // Check if ticket already exists to log if this is an update
+            $existingTicket = EventbriteTicket::where('eventbrite_ticket_id', $eventbriteTicketId)->first();
+            $isUpdate = $existingTicket !== null;
+            
+            $ticket = EventbriteTicket::updateOrCreate(
                 ['eventbrite_ticket_id' => $eventbriteTicketId],
                 $updateData
             );
@@ -144,7 +148,11 @@ class EventbriteWebhookController extends Controller
             Log::info('Ticket stored from webhook', [
                 'ticket_id' => $eventbriteTicketId,
                 'order_id' => $orderId,
+                'is_update' => $isUpdate,
                 'first_name' => $updateData['first_name'],
+                'last_name' => $updateData['last_name'],
+                'email' => $updateData['email'],
+                'database_id' => $ticket->id,
             ]);
         }
     }
