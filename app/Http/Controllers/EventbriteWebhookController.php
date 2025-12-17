@@ -15,8 +15,11 @@ class EventbriteWebhookController extends Controller
     {
         $payload = $request->all();
         
-        // Log all webhook calls for debugging
-        Log::info('Eventbrite webhook received', ['payload' => $payload]);
+        // Log all webhook calls for debugging - ALWAYS log
+        Log::info('Eventbrite webhook received - raw payload', [
+            'keys' => array_keys($payload),
+            'payload' => $payload
+        ]);
 
         // Check if this is an order.placed webhook with api_url
         if (isset($payload['api_url']) && isset($payload['config']['action'])) {
@@ -39,55 +42,141 @@ class EventbriteWebhookController extends Controller
                     return response()->json(['status' => 'error', 'message' => 'Invalid order_id'], 400);
                 }
                 
-                try {
-                    // Fetch order details from API
-                    $token = config('services.eventbrite.token');
-                    if (!$token) {
-                        Log::error('Eventbrite token not configured');
-                        return response()->json(['status' => 'error', 'message' => 'Token not configured'], 500);
-                    }
-                    
-                    $response = Http::withToken($token)
-                        ->withoutVerifying()
-                        ->get($apiUrl . '?expand=attendees');
-                    
-                    if (!$response->successful()) {
-                        Log::error('Failed to fetch order details from API', [
-                            'order_id' => $orderId,
-                            'status' => $response->status(),
-                        ]);
-                        return response()->json(['status' => 'error', 'message' => 'Failed to fetch order'], 500);
-                    }
-                    
-                    $orderData = $response->json();
-                    $eventId = $orderData['event_id'] ?? null;
-                    
-                    if (!$eventId) {
-                        Log::error('Could not extract event_id from API response', [
-                            'order_id' => $orderId,
-                            'api_url' => $apiUrl,
-                        ]);
-                        return response()->json(['status' => 'error', 'message' => 'event_id not in response'], 400);
-                    }
-                    
-                    Log::info('Processing order event', ['action' => $action, 'order_id' => $orderId, 'event_id' => $eventId]);
-                    
-                    // Store tickets immediately
-                    $attendees = $orderData['attendees'] ?? [];
-                    $this->storeTickets($orderId, $eventId, $attendees);
-                    
-                    return response()->json(['status' => 'success', 'message' => 'Order stored']);
-                } catch (\Exception $e) {
-                    Log::error('Exception handling webhook', [
-                        'message' => $e->getMessage(),
-                        'trace' => $e->getTraceAsString()
-                    ]);
-                    return response()->json(['status' => 'error', 'message' => $e->getMessage()], 500);
-                }
+                Log::info('Processing order event', ['action' => $action, 'order_id' => $orderId]);
+                $this->processOrderWebhook($orderId, $apiUrl);
+                return response()->json(['status' => 'success', 'message' => 'Order processed']);
             }
+            
+            // Handle attendee.updated events - when attendee details change
+            if (strpos($action, 'attendee.') === 0) {
+                $apiUrl = $payload['api_url'];
+                
+                // Extract attendee ID and event ID from API URL
+                // e.g., https://www.eventbriteapi.com/v3/events/123456789/attendees/9876543210/
+                preg_match('/events\/(\d+)\/attendees\/(\d+)/', $apiUrl, $matches);
+                $eventId = $matches[1] ?? null;
+                $attendeeId = $matches[2] ?? null;
+                
+                if (!$eventId || !$attendeeId) {
+                    Log::warning('Could not extract event_id or attendee_id from webhook', [
+                        'api_url' => $apiUrl,
+                        'event_id' => $eventId,
+                        'attendee_id' => $attendeeId,
+                    ]);
+                    return response()->json(['status' => 'error', 'message' => 'Invalid attendee event'], 400);
+                }
+                
+                Log::info('Processing attendee event', ['action' => $action, 'event_id' => $eventId, 'attendee_id' => $attendeeId]);
+                $this->processAttendeeWebhook($eventId, $attendeeId, $apiUrl);
+                return response()->json(['status' => 'success', 'message' => 'Attendee processed']);
         }
 
+        Log::warning('Eventbrite webhook received but not processed', [
+            'has_api_url' => isset($payload['api_url']),
+            'has_config_action' => isset($payload['config']['action']) ?? false,
+            'payload_keys' => array_keys($payload),
+        ]);
         return response()->json(['status' => 'ignored']);
+    }
+
+    /**
+     * Process order webhook event
+     */
+    private function processOrderWebhook(string $orderId, string $apiUrl): void
+    {
+        try {
+            $token = config('services.eventbrite.token');
+            if (!$token) {
+                Log::error('Eventbrite token not configured');
+                return;
+            }
+            
+            $response = Http::withToken($token)
+                ->withoutVerifying()
+                ->get($apiUrl . '?expand=attendees');
+            
+            if (!$response->successful()) {
+                Log::error('Failed to fetch order details from API', [
+                    'order_id' => $orderId,
+                    'status' => $response->status(),
+                ]);
+                return;
+            }
+            
+            $orderData = $response->json();
+            $eventId = $orderData['event_id'] ?? null;
+            
+            if (!$eventId) {
+                Log::error('Could not extract event_id from API response', [
+                    'order_id' => $orderId,
+                    'api_url' => $apiUrl,
+                ]);
+                return;
+            }
+            
+            $attendees = $orderData['attendees'] ?? [];
+            $this->storeTickets($orderId, $eventId, $attendees);
+        } catch (\Exception $e) {
+            Log::error('Exception processing order webhook', [
+                'order_id' => $orderId,
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+        }
+    }
+
+    /**
+     * Process attendee webhook event - handles attendee.updated events
+     */
+    private function processAttendeeWebhook(string $eventId, string $attendeeId, string $apiUrl): void
+    {
+        try {
+            $token = config('services.eventbrite.token');
+            if (!$token) {
+                Log::error('Eventbrite token not configured');
+                return;
+            }
+            
+            $response = Http::withToken($token)
+                ->withoutVerifying()
+                ->get($apiUrl);
+            
+            if (!$response->successful()) {
+                Log::error('Failed to fetch attendee details from API', [
+                    'event_id' => $eventId,
+                    'attendee_id' => $attendeeId,
+                    'status' => $response->status(),
+                ]);
+                return;
+            }
+            
+            $attendeeData = $response->json();
+            $orderId = $attendeeData['order_id'] ?? null;
+            
+            if (!$orderId) {
+                Log::error('Could not extract order_id from attendee API response', [
+                    'event_id' => $eventId,
+                    'attendee_id' => $attendeeId,
+                ]);
+                return;
+            }
+            
+            // Update the single attendee
+            $this->storeTickets($orderId, $eventId, [$attendeeData]);
+            
+            Log::info('Attendee updated from webhook', [
+                'event_id' => $eventId,
+                'attendee_id' => $attendeeId,
+                'order_id' => $orderId,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Exception processing attendee webhook', [
+                'event_id' => $eventId,
+                'attendee_id' => $attendeeId,
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+        }
     }
 
     /**
