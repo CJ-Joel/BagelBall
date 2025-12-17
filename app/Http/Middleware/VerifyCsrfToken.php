@@ -17,5 +17,8 @@ class VerifyCsrfToken extends Middleware
         'webhooks/*',
         'eventbrite/sync/run',
         'pregames/validate-order',
+        'checkin/login',
+        'checkin/logout',
+        'checkin/scan',
     ];
 }
