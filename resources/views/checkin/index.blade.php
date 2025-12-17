@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Check-in Scanner</title>
+  <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/minified/html5-qrcode.min.js"></script>
   <style>
     :root{--bg:#0b1220;--card:#111827;--muted:#9ca3af;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444;--line:#273244}
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:#e5e7eb;margin:0;padding:16px}
@@ -20,10 +21,7 @@
     .status.ok{color:var(--ok)}
     .status.warn{color:var(--warn)}
     .status.bad{color:var(--bad)}
-    .viewport{position:relative;border-radius:14px;overflow:hidden;background:#000;border:1px solid var(--line)}
-    video{width:100%;height:auto;display:block}
-    .overlay{position:absolute;inset:0;pointer-events:none;display:flex;align-items:center;justify-content:center}
-    .frame{width:min(70%,320px);aspect-ratio:1/1;border:2px solid rgba(255,255,255,.75);border-radius:18px;box-shadow:0 0 0 9999px rgba(0,0,0,.25)}
+    #scanner{width:100%;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:#000}
     .kpis{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
     .kpi{flex:1 1 140px;border:1px solid var(--line);border-radius:12px;padding:10px;background:#0b1220}
     .kpi .label{font-size:12px;color:var(--muted)}
@@ -38,6 +36,7 @@
     .pill.warn{border-color:rgba(245,158,11,.45);color:var(--warn)}
     .pill.bad{border-color:rgba(239,68,68,.45);color:var(--bad)}
     input{width:100%;padding:12px;border-radius:12px;border:1px solid var(--line);background:#0b1220;color:#e5e7eb;font-size:16px}
+    #html5-qrcode-button-camera,#html5-qrcode-button-file{display:none}
   </style>
 </head>
 <body>
@@ -45,7 +44,7 @@
     <div class="top">
       <div>
         <div style="font-size:20px;font-weight:900">Check-in scanner</div>
-        <div class="muted">Continuous scan (iPhone camera). Hold ticket inside the box.</div>
+        <div class="muted">Scan 2D ticket barcodes (QR, PDF417, etc.)</div>
       </div>
       <form method="post" action="{{ route('checkin.logout') }}">
         <button class="btn" type="submit">Logout</button>
@@ -55,10 +54,7 @@
     <div class="row">
       <div class="left">
         <div class="card">
-          <div class="viewport">
-            <video id="video" playsinline muted></video>
-            <div class="overlay"><div class="frame"></div></div>
-          </div>
+          <div id="scanner" style="width:100%;aspect-ratio:1/1"></div>
 
           <div class="kpis">
             <div class="kpi">
@@ -76,14 +72,14 @@
           </div>
 
           <div style="margin-top:10px" class="muted">
-            Tip: for best results, use Safari on iPhone and allow camera.
+            Tip: Hold ticket barcode in front of camera. For best results use good lighting.
           </div>
         </div>
 
         <div class="card" style="margin-top:12px">
           <div style="font-weight:800;margin-bottom:8px">Manual entry (fallback)</div>
           <input id="manual" placeholder="Paste barcode value and press Enter" autocomplete="off" inputmode="text" />
-          <div class="muted" style="margin-top:8px">Works if camera scanning is blocked or for testing.</div>
+          <div class="muted" style="margin-top:8px">Works if camera is unavailable or for testing.</div>
         </div>
       </div>
 
@@ -96,15 +92,12 @@
     </div>
   </div>
 
-  <script type="module">
-    // Uses the built-in BarcodeDetector API when available (Safari 17.4+).
-    // If BarcodeDetector isn't supported, manual entry still works.
-
+  <script>
     const scanUrl = @json(route('checkin.scan'));
     const csrf = @json(csrf_token());
 
     const els = {
-      video: document.getElementById('video'),
+      scanner: document.getElementById('scanner'),
       status: document.getElementById('status'),
       lastName: document.getElementById('lastName'),
       count: document.getElementById('count'),
@@ -113,10 +106,8 @@
     };
 
     const state = {
-      running: false,
-      dedupe: new Map(),
       scannedCount: 0,
-      lastPayload: null,
+      dedupe: new Map(),
     };
 
     function setStatus(text, kind) {
@@ -162,7 +153,7 @@
     async function lookup(barcode) {
       const now = Date.now();
       const last = state.dedupe.get(barcode);
-      if (last && (now - last) < 1500) return; // prevent rapid repeats
+      if (last && (now - last) < 1500) return;
       state.dedupe.set(barcode, now);
 
       setStatus('Looking up…', null);
@@ -201,85 +192,24 @@
       beep(good);
     }
 
-    async function startCamera() {
-      const constraints = {
-        video: {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        },
-        audio: false
-      };
+    const html5QrcodeScanner = new Html5QrcodeScanner(
+      "scanner",
+      { 
+        fps: 10,
+        qrbox: { width: 250, height: 250 },
+        supportedScanTypes: ['SCAN_TYPE_CAMERA']
+      },
+      false
+    );
 
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      els.video.srcObject = stream;
-      await els.video.play();
-    }
+    html5QrcodeScanner.render(
+      (decodedText) => {
+        lookup(decodedText.trim());
+      },
+      (err) => {}
+    );
 
-    function getSupportedFormats() {
-      // Try to include some common 2D formats.
-      // Note: iOS support varies by OS version.
-      const wanted = [
-        'qr_code',
-        'pdf417',
-        'aztec',
-        'data_matrix',
-        'code_128',
-      ];
-      return wanted;
-    }
-
-    async function scanLoop(detector) {
-      state.running = true;
-      setStatus('Scanning…', 'ok');
-
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d', { willReadFrequently: true });
-
-      while (state.running) {
-        const v = els.video;
-        if (v.readyState >= 2) {
-          canvas.width = v.videoWidth;
-          canvas.height = v.videoHeight;
-          ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
-
-          try {
-            const bitmap = await createImageBitmap(canvas);
-            const codes = await detector.detect(bitmap);
-            bitmap.close();
-            for (const c of codes) {
-              const raw = (c.rawValue || '').trim();
-              if (raw) {
-                // Fire and forget; loop continues for continuous scanning.
-                lookup(raw);
-              }
-            }
-          } catch (e) {
-            // ignore frame errors
-          }
-        }
-
-        await new Promise(r => setTimeout(r, 120));
-      }
-    }
-
-    async function init() {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        setStatus('Camera not available', 'bad');
-        return;
-      }
-
-      if (!('BarcodeDetector' in window)) {
-        setStatus('Scanner unsupported (use manual entry)', 'warn');
-        // still start camera for preview; manual entry can be used.
-        await startCamera().catch(() => {});
-        return;
-      }
-
-      await startCamera();
-      const detector = new BarcodeDetector({ formats: getSupportedFormats() });
-      scanLoop(detector);
-    }
+    setStatus('Ready', 'ok');
 
     els.manual.addEventListener('keydown', async (e) => {
       if (e.key === 'Enter') {
@@ -289,10 +219,6 @@
         els.manual.value = '';
         await lookup(val);
       }
-    });
-
-    init().catch((e) => {
-      setStatus('Failed to start camera', 'bad');
     });
   </script>
 </body>
