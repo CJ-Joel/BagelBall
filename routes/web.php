@@ -29,14 +29,3 @@ Route::post('/admin/login', [\App\Http\Controllers\AdminAuthController::class, '
 
 // Admin page (token in querystring)
 Route::get('/admin', [\App\Http\Controllers\AdminController::class, 'ticketsSoldByDay'])->name('admin.tickets-sold-by-day');
-
-// Checkin (admins table auth)
-Route::get('/checkin/login', [\App\Http\Controllers\CheckinAuthController::class, 'showLogin'])->name('checkin.login');
-Route::post('/checkin/login', [\App\Http\Controllers\CheckinAuthController::class, 'login'])->name('checkin.login.post');
-Route::post('/checkin/logout', [\App\Http\Controllers\CheckinAuthController::class, 'logout'])->name('checkin.logout');
-Route::get('/checkin', [\App\Http\Controllers\CheckinController::class, 'index'])->middleware('auth:admins')->name('checkin.index');
-
-// Generic fallback login route expected by Laravel's auth middleware
-Route::get('/login', function () {
-	return redirect()->route('checkin.login');
-})->name('login');
