@@ -4,22 +4,13 @@ namespace App\Http\Controllers;
 
 use App\Models\EventbriteTicket;
 use Illuminate\Http\Request;
+use App\Models\Registration;
 
 class CheckinController extends Controller
 {
     public function showLogin(Request $request)
     {
-        return redirect()->route('checkin.index');
-    }
-
-    public function login(Request $request)
-    {
-        return redirect()->route('checkin.index');
-    }
-
-    public function logout(Request $request)
-    {
-        return redirect()->route('checkin.index');
+        return view('checkin.login');
     }
 
     public function index(Request $request)
@@ -52,14 +43,12 @@ class CheckinController extends Controller
         $name = trim((string) ($ticket->first_name . ' ' . $ticket->last_name));
         $name = $name !== '' ? $name : ($ticket->email ?? 'Unknown');
 
-        // Mark redeemed if not already.
         $alreadyRedeemed = $ticket->isRedeemed();
         if (!$alreadyRedeemed) {
             $ticket->redeemed_at = now();
             $ticket->save();
         }
-
-        return response()->json([
+            return response()->json([
             'ok' => true,
             'status' => $alreadyRedeemed ? 'already_redeemed' : 'redeemed',
             'name' => $name,
@@ -67,6 +56,6 @@ class CheckinController extends Controller
             'ticket_id' => $ticket->eventbrite_ticket_id,
             'barcode_id' => $ticket->barcode_id,
             'redeemed_at' => optional($ticket->redeemed_at)->toIso8601String(),
-        ]);
+            ]);
     }
 }

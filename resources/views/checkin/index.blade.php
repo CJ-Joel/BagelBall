@@ -17,9 +17,10 @@
     .muted{color:var(--muted);font-size:14px}
     .btn{display:inline-block;border:1px solid var(--line);background:#0b1220;color:#e5e7eb;padding:10px 12px;border-radius:12px;text-decoration:none}
     button.btn{cursor:pointer}
-    .status{font-weight:700}
+    .status{font-weight:800; font-size:20px; letter-spacing:0.6px}
     .status.ok{color:var(--ok)}
-    .status.warn{color:var(--warn)}
+    /* Use red for 'already admitted' to be more visible */
+    .status.warn{color:var(--bad)}
     .status.bad{color:var(--bad)}
     #preview{width:100%;border-radius:14px;border:1px solid var(--line);background:#000;max-height:400px;object-fit:cover}
     #preview video { object-fit: cover; width: 100%; height: auto; max-height: 400px; }
@@ -46,22 +47,32 @@
     .search-result-status.not-checked-in { color: var(--warn); }
     @keyframes scanFlash { 0% { background: rgba(34, 197, 94, 0.3); } 100% { background: rgba(34, 197, 94, 0); } }
     #preview.scan-detected { animation: scanFlash 0.6s ease-out; }
+    @keyframes fullScreenFlashGreen { 0% { background: rgba(34, 197, 94, 0.6); } 100% { background: rgba(34, 197, 94, 0); } }
+    @keyframes fullScreenFlashRed { 0% { background: rgba(239, 68, 68, 0.6); } 100% { background: rgba(239, 68, 68, 0); } }
+    #flashOverlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 9999; }
+    #flashOverlay.flash-green { animation: fullScreenFlashGreen 0.6s ease-out; }
+    #flashOverlay.flash-red { animation: fullScreenFlashRed 0.6s ease-out; }
     .result-card { margin-top: 12px; min-height: 80px; display: flex; flex-direction: column; justify-content: center; align-items: center; }
     .result-name { font-size: 32px; font-weight: 900; color: var(--ok); text-align: center; word-break: break-word; }
-    .result-name.already { color: var(--warn); }
-    .result-meta { font-size: 14px; color: var(--muted); margin-top: 8px; text-align: center; }
+    .result-name.already { color: var(--bad); }
+    .result-meta { font-size: 18px; font-weight:800; color: var(--muted); margin-top: 8px; text-align: center; }
+    .result-meta.already { color: var(--bad); }
+    .result-meta.ok { color: var(--ok); }
+    .result-details { font-size: 15px; color: var(--muted); margin-top: 6px; text-align: center; }
+    .result-details.ok { color: var(--ok); }
+    .result-details.warn { color: var(--warn); }
+    .result-details.bad { color: var(--bad); }
   </style>
 </head>
 <body>
+  <div id="flashOverlay"></div>
   <div class="wrap">
     <div class="top">
       <div>
         <div style="font-size:20px;font-weight:900">Check-in scanner</div>
         <div class="muted">Scan or manually enter barcode</div>
       </div>
-      <form method="post" action="{{ route('checkin.logout') }}">
-        <button class="btn" type="submit">Logout</button>
-      </form>
+      <!-- Token-based authentication in use — logout button removed -->
     </div>
 
     <div class="row">
@@ -72,6 +83,7 @@
           <div class="card result-card" id="resultCard" style="display:none;">
             <div class="result-name" id="resultName"></div>
             <div class="result-meta" id="resultMeta"></div>
+            <div class="result-details" id="resultDetails"></div>
           </div>
 
           <div class="kpis">
@@ -105,6 +117,9 @@
   <script>
     const scanUrl = @json(route('checkin.scan'));
     const csrf = @json(csrf_token());
+    // If the page was opened with ?checkin_token=... include it for subsequent POSTs.
+    // Fall back to server env only when present (use carefully).
+    const checkinToken = @json(request()->query('checkin_token') ?? env('CHECKIN_TOKEN', null));
 
     const els = {
       preview: document.getElementById('preview'),
@@ -114,6 +129,7 @@
       resultCard: document.getElementById('resultCard'),
       resultName: document.getElementById('resultName'),
       resultMeta: document.getElementById('resultMeta'),
+      resultDetails: document.getElementById('resultDetails'),
       search: document.getElementById('search'),
       searchResults: document.getElementById('searchResults'),
     };
@@ -123,6 +139,7 @@
       dedupe: new Map(),
       priorName: '—',
       currentName: null,
+       resultHideTimer: null,
     };
 
     function setStatus(text, kind) {
@@ -152,6 +169,14 @@
       els.preview.classList.add('scan-detected');
     }
 
+    function flashScreen(isSuccess) {
+      const overlay = document.getElementById('flashOverlay');
+      const className = isSuccess ? 'flash-green' : 'flash-red';
+      overlay.classList.remove('flash-green', 'flash-red');
+      void overlay.offsetWidth; // Trigger reflow
+      overlay.classList.add(className);
+    }
+
     function addLogItem({name, status, barcode}) {
       const div = document.createElement('div');
       div.className = 'log-item';
@@ -179,13 +204,19 @@
 
       setStatus('Looking up…', null);
 
+      const headers = {
+        'Content-Type': 'application/json',
+        'X-CSRF-TOKEN': csrf,
+        'Accept': 'application/json'
+      };
+      if (checkinToken) {
+        headers['X-CHECKIN-TOKEN'] = checkinToken;
+        headers['Authorization'] = 'Bearer ' + checkinToken;
+      }
+
       const res = await fetch(scanUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-TOKEN': csrf,
-          'Accept': 'application/json'
-        },
+        headers,
         body: JSON.stringify({ barcode })
       });
 
@@ -193,6 +224,7 @@
       if (!res.ok) {
         setStatus('Error', 'bad');
         beep(false);
+        flashScreen(false);
         return;
       }
 
@@ -201,6 +233,7 @@
         els.lastName.textContent = '—';
         addLogItem({ name: 'Not found', status: data.status || 'not_found', barcode });
         beep(false);
+        flashScreen(false);
         els.resultCard.style.display = 'none';
         return;
       }
@@ -219,12 +252,32 @@
       addLogItem({ name: data.name || 'Unknown', status: data.status, barcode });
       beep(good);
       
-      // Show result card
-      els.resultName.textContent = data.name || 'Unknown';
-      const isAlready = data.status === 'already_redeemed';
-      els.resultName.classList.toggle('already', isAlready);
-      els.resultMeta.textContent = isAlready ? 'Already admitted ✕' : 'Checked in ✓';
-      els.resultCard.style.display = 'flex';
+      // Flash green for new check-in, red for already used
+      const isNewCheckIn = data.status === 'redeemed';
+      flashScreen(isNewCheckIn);
+      
+       // Show result card (persist until next scan) and auto-hide after 10s
+       els.resultName.textContent = data.name || 'Unknown';
+       const isAlready = data.status === 'already_redeemed';
+       els.resultName.classList.toggle('already', isAlready);
+       els.resultMeta.textContent = isAlready ? 'Already admitted ✕' : 'Checked in ✓';
+       // Toggle meta classes so styling (red/green) applies to the status text
+       els.resultMeta.classList.toggle('already', isAlready);
+       els.resultMeta.classList.toggle('ok', !isAlready);
+      // Show minimal details (ticket type if provided)
+      els.resultDetails.textContent = data.ticket_type || '';
+      els.resultDetails.className = 'result-details';
+       els.resultCard.style.display = 'flex';
+       // Clear existing hide timer
+       if (state.resultHideTimer) {
+         clearTimeout(state.resultHideTimer);
+         state.resultHideTimer = null;
+       }
+       // Auto-hide after 10 seconds
+       state.resultHideTimer = setTimeout(() => {
+         els.resultCard.style.display = 'none';
+         state.resultHideTimer = null;
+       }, 10000);
     }
 
     // Try to start camera with jsQR

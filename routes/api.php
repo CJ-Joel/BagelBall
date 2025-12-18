@@ -28,6 +28,7 @@ Route::get('/search-registrants', function (\Illuminate\Http\Request $request) {
     $results = \App\Models\EventbriteTicket::query()
         ->where('first_name', 'like', '%' . $query . '%')
         ->orWhere('last_name', 'like', '%' . $query . '%')
+        ->orderBy('first_name', 'asc')
         ->limit(10)
         ->get(['first_name', 'last_name', 'email', 'barcode_id', 'redeemed_at'])
         ->toArray();

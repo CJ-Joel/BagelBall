@@ -3,22 +3,32 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <title>Check-in Scanner</title>
+  <title>Check-in Login</title>
   <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#0b1220;color:#e5e7eb;padding:24px;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
-    .card{max-width:520px;text-align:center;padding:40px;border-radius:12px;background:#111827;box-shadow:0 10px 30px rgba(0,0,0,.35)}
-    h1{margin:0 0 12px;font-size:32px}
-    .subtitle{color:#9ca3af;margin-bottom:24px}
-    .btn{display:inline-block;padding:14px 28px;border-radius:10px;border:0;background:#22c55e;color:#0b1220;font-weight:700;font-size:16px;text-decoration:none;cursor:pointer}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#0b1220;color:#e5e7eb;margin:0;padding:32px;display:flex;align-items:center;justify-content:center;height:100vh}
+    .card{background:#111827;border-radius:12px;padding:20px;width:420px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+    h1{margin:0 0 12px 0;font-size:20px}
+    label{display:block;margin-bottom:6px;color:#9ca3af}
+    input{width:100%;padding:10px;border-radius:8px;border:1px solid #273244;background:#0b1220;color:#e5e7eb}
+    .btn{margin-top:12px;width:100%;padding:10px;border-radius:8px;background:#22c55e;color:#061018;border:0;font-weight:700;cursor:pointer}
+    .muted{color:#9ca3af;font-size:13px;margin-top:8px}
+    .error{color:#ef4444;margin-top:8px}
+    form p{margin:0}
   </style>
 </head>
 <body>
   <div class="card">
-    <h1>Check-in</h1>
-    <div class="subtitle">Scan 2D ticket barcodes</div>
+    <h1>Check-in login</h1>
     <form method="post" action="{{ route('checkin.login.post') }}">
-      <button class="btn" type="submit">Open scanner →</button>
+      @csrf
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" autofocus />
+      <button class="btn" type="submit">Enter</button>
     </form>
+    @if($errors->has('password'))
+      <div class="error">{{ $errors->first('password') }}</div>
+    @endif
+    <div class="muted">Set the password with the environment variable <code>CHECKIN_PASSWORD</code>.</div>
   </div>
 </body>
 </html>

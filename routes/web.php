@@ -30,10 +30,7 @@ Route::post('/admin/login', [\App\Http\Controllers\AdminAuthController::class, '
 // Admin page (token in querystring)
 Route::get('/admin', [\App\Http\Controllers\AdminController::class, 'ticketsSoldByDay'])->name('admin.tickets-sold-by-day');
 
-// Check-in (password -> session)
-Route::get('/checkin/login', [\App\Http\Controllers\CheckinController::class, 'showLogin'])->name('checkin.login');
-Route::post('/checkin/login', [\App\Http\Controllers\CheckinController::class, 'login'])->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class])->name('checkin.login.post');
-Route::post('/checkin/logout', [\App\Http\Controllers\CheckinController::class, 'logout'])->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class])->name('checkin.logout');
+// Check-in (token or session-based middleware handles access)
 
-Route::get('/checkin', [\App\Http\Controllers\CheckinController::class, 'index'])->name('checkin.index');
-Route::post('/checkin/scan', [\App\Http\Controllers\CheckinController::class, 'scan'])->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class])->name('checkin.scan');
+Route::get('/checkin', [\App\Http\Controllers\CheckinController::class, 'index'])->middleware(\App\Http\Middleware\CheckinToken::class)->name('checkin.index');
+Route::post('/checkin/scan', [\App\Http\Controllers\CheckinController::class, 'scan'])->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class])->middleware(\App\Http\Middleware\CheckinToken::class)->name('checkin.scan');
