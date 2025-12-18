@@ -22,8 +22,8 @@
     /* Use red for 'already admitted' to be more visible */
     .status.warn{color:var(--bad)}
     .status.bad{color:var(--bad)}
-    #preview{width:100%;border-radius:14px;border:1px solid var(--line);background:#000;max-height:400px;object-fit:cover}
-    #preview video { object-fit: cover; width: 100%; height: auto; max-height: 400px; }
+    #preview{width:100%;border-radius:14px;border:1px solid var(--line);background:#000;max-height:320px;object-fit:cover}
+    #preview video { object-fit: cover; width: 100%; height: auto; max-height: 320px; }
     .kpis{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
     .kpi{flex:1 1 140px;border:1px solid var(--line);border-radius:12px;padding:10px;background:#0b1220}
     .kpi .label{font-size:12px;color:var(--muted)}
@@ -317,13 +317,25 @@
               
               if (code) {
                 console.log("QR decoded:", code.data);
-                setStatus("Detected: " + code.data.substring(0, 10) + "...", "ok");
-                flashScanDetected();
-                beep(true);
-                setTimeout(() => setStatus("Processing...", null), 300);
-                lookup(code.data);
-                scanning = false;
-                setTimeout(() => scanning = true, 1500);
+
+                // Ignore very short numeric codes (likely false positives)
+                const digitCount = (code.data.match(/\d/g) || []).length;
+                if (digitCount < 6) {
+                  // Briefly show ignored status but do not trigger lookup/beep
+                  setStatus("Ignored short code", "warn");
+                  flashScanDetected();
+                  // Pause scanning briefly to avoid repeated false-detections
+                  scanning = false;
+                  setTimeout(() => scanning = true, 1000);
+                } else {
+                  setStatus("Detected: " + code.data.substring(0, 10) + "...", "ok");
+                  flashScanDetected();
+                  beep(true);
+                  setTimeout(() => setStatus("Processing...", null), 300);
+                  lookup(code.data);
+                  scanning = false;
+                  setTimeout(() => scanning = true, 1500);
+                }
               }
             } catch (e) {
               console.error("Scan error:", e);
