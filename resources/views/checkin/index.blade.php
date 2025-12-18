@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Check-in Scanner</title>
+  <script src="https://cdn.jsdelivr.net/npm/quagga@0.12.1/dist/quagga.min.js"></script>
   <style>
     :root{--bg:#0b1220;--card:#111827;--muted:#9ca3af;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444;--line:#273244}
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:#e5e7eb;margin:0;padding:16px}
@@ -187,15 +188,43 @@
     }
 
     // Try to start camera
-    if (navigator.mediaDevices?.getUserMedia) {
-      navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'environment' },
-        audio: false 
-      })
-      .then(stream => {
-        els.preview.srcObject = stream;
-      })
-      .catch(() => {});
+    if (typeof Quagga !== 'undefined') {
+      Quagga.init({
+        inputStream: {
+          name: "Live",
+          type: "LiveStream",
+          target: els.preview,
+          constraints: {
+            width: 640,
+            height: 480,
+            facingMode: "environment"
+          },
+        },
+        locator: {
+          patchSize: "medium",
+          halfSample: true
+        },
+        numOfWorkers: 2,
+        decoder: {
+          readers: ["qr_code_reader", "code_128_reader", "ean_reader", "ean_8_reader", "code_39_reader", "code_39_vin_reader", "codabar_reader", "upc_reader", "upc_e_reader", "i2of5_reader", "2of5_reader", "code_93_reader"]
+        },
+        locate: true
+      }, function(err) {
+        if (err) {
+          console.log("Quagga init error:", err);
+          setStatus("Camera not available", "warn");
+          return;
+        }
+        Quagga.start();
+        setStatus("Scanning...", null);
+      });
+
+      Quagga.onDetected(function(result) {
+        const code = result.codeResult.code;
+        lookup(code);
+      });
+    } else {
+      setStatus("Scanner not loaded", "bad");
     }
 
     // Manual entry
