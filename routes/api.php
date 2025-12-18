@@ -18,6 +18,23 @@ use App\Http\Controllers\AuthController;
 Route::post('/auth/login', [AuthController::class, 'login']);
 Route::post('/auth/register', [AuthController::class, 'register']);
 
+// Search registrants (for check-in page)
+Route::get('/search-registrants', function (\Illuminate\Http\Request $request) {
+    $query = $request->query('q', '');
+    if (strlen($query) < 2) {
+        return response()->json(['results' => []]);
+    }
+    
+    $results = \App\Models\EventbriteTicket::query()
+        ->where('first_name', 'like', '%' . $query . '%')
+        ->orWhere('last_name', 'like', '%' . $query . '%')
+        ->limit(10)
+        ->get(['first_name', 'last_name', 'email', 'barcode_id', 'redeemed_at'])
+        ->toArray();
+    
+    return response()->json(['results' => $results]);
+});
+
 // Protected routes (JWT required)
 Route::middleware('jwt')->group(function () {
     Route::get('/auth/me', [AuthController::class, 'me']);

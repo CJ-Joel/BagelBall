@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Check-in Scanner</title>
-  <script src="https://cdn.jsdelivr.net/npm/quagga@0.12.1/dist/quagga.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
   <style>
     :root{--bg:#0b1220;--card:#111827;--muted:#9ca3af;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444;--line:#273244}
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:#e5e7eb;margin:0;padding:16px}
@@ -22,6 +22,7 @@
     .status.warn{color:var(--warn)}
     .status.bad{color:var(--bad)}
     #preview{width:100%;border-radius:14px;border:1px solid var(--line);background:#000;max-height:400px;object-fit:cover}
+    #preview video { object-fit: cover; width: 100%; height: auto; max-height: 400px; }
     .kpis{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
     .kpi{flex:1 1 140px;border:1px solid var(--line);border-radius:12px;padding:10px;background:#0b1220}
     .kpi .label{font-size:12px;color:var(--muted)}
@@ -36,6 +37,19 @@
     .pill.warn{border-color:rgba(245,158,11,.45);color:var(--warn)}
     .pill.bad{border-color:rgba(239,68,68,.45);color:var(--bad)}
     input{width:100%;padding:12px;border-radius:12px;border:1px solid var(--line);background:#0b1220;color:#e5e7eb;font-size:16px;box-sizing:border-box}
+    .search-result { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; margin-top: 8px; cursor: pointer; background: #0b1220; transition: all 0.2s; }
+    .search-result:hover { background: #111827; border-color: #3f4651; }
+    .search-result-name { font-weight: 700; }
+    .search-result-email { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .search-result-status { font-size: 12px; margin-top: 4px; }
+    .search-result-status.checked-in { color: var(--ok); }
+    .search-result-status.not-checked-in { color: var(--warn); }
+    @keyframes scanFlash { 0% { background: rgba(34, 197, 94, 0.3); } 100% { background: rgba(34, 197, 94, 0); } }
+    #preview.scan-detected { animation: scanFlash 0.6s ease-out; }
+    .result-card { margin-top: 12px; min-height: 80px; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+    .result-name { font-size: 32px; font-weight: 900; color: var(--ok); text-align: center; word-break: break-word; }
+    .result-name.already { color: var(--warn); }
+    .result-meta { font-size: 14px; color: var(--muted); margin-top: 8px; text-align: center; }
   </style>
 </head>
 <body>
@@ -53,7 +67,12 @@
     <div class="row">
       <div class="left">
         <div class="card">
-          <video id="preview" playsinline muted autoplay></video>
+          <div id="preview"></div>
+
+          <div class="card result-card" id="resultCard" style="display:none;">
+            <div class="result-name" id="resultName"></div>
+            <div class="result-meta" id="resultMeta"></div>
+          </div>
 
           <div class="kpis">
             <div class="kpi">
@@ -61,20 +80,16 @@
               <div id="status" class="value status">Ready</div>
             </div>
             <div class="kpi">
-              <div class="label">Last scan</div>
+              <div class="label">Prior scan</div>
               <div id="lastName" class="value">—</div>
-            </div>
-            <div class="kpi">
-              <div class="label">Scanned</div>
-              <div id="count" class="value">0</div>
             </div>
           </div>
         </div>
 
         <div class="card" style="margin-top:12px">
-          <div style="font-weight:800;margin-bottom:8px">Enter barcode</div>
-          <input id="manual" placeholder="Scan or paste barcode, then press Enter" autocomplete="off" inputmode="text" autofocus />
-          <div class="muted" style="margin-top:8px">Works on any device. Camera will auto-start if available.</div>
+          <div style="font-weight:800;margin-bottom:8px">Search by name</div>
+          <input id="search" placeholder="First or last name" autocomplete="off" inputmode="text" />
+          <div id="searchResults" style="margin-top:8px; max-height:300px; overflow-y:auto;"></div>
         </div>
       </div>
 
@@ -95,14 +110,19 @@
       preview: document.getElementById('preview'),
       status: document.getElementById('status'),
       lastName: document.getElementById('lastName'),
-      count: document.getElementById('count'),
       log: document.getElementById('log'),
-      manual: document.getElementById('manual'),
+      resultCard: document.getElementById('resultCard'),
+      resultName: document.getElementById('resultName'),
+      resultMeta: document.getElementById('resultMeta'),
+      search: document.getElementById('search'),
+      searchResults: document.getElementById('searchResults'),
     };
 
     const state = {
       scannedCount: 0,
       dedupe: new Map(),
+      priorName: '—',
+      currentName: null,
     };
 
     function setStatus(text, kind) {
@@ -124,6 +144,12 @@
         setTimeout(() => { o.stop(); ctx.close(); }, 90);
       } catch (e) {}
       if (navigator.vibrate) navigator.vibrate(ok ? 35 : [20, 30, 20]);
+    }
+
+    function flashScanDetected() {
+      els.preview.classList.remove('scan-detected');
+      void els.preview.offsetWidth; // Trigger reflow
+      els.preview.classList.add('scan-detected');
     }
 
     function addLogItem({name, status, barcode}) {
@@ -175,66 +201,139 @@
         els.lastName.textContent = '—';
         addLogItem({ name: 'Not found', status: data.status || 'not_found', barcode });
         beep(false);
+        els.resultCard.style.display = 'none';
         return;
       }
 
       const good = data.status === 'redeemed' || data.status === 'already_redeemed';
       setStatus(data.status === 'redeemed' ? 'Checked in' : 'Already checked in', data.status === 'redeemed' ? 'ok' : 'warn');
-      els.lastName.textContent = data.name || 'Unknown';
+      
+      // Only update prior name if current name is different
+      if (state.currentName !== (data.name || 'Unknown')) {
+        state.priorName = state.currentName || '—';
+        state.currentName = data.name || 'Unknown';
+        els.lastName.textContent = state.priorName;
+      }
+      
       state.scannedCount += 1;
-      els.count.textContent = String(state.scannedCount);
       addLogItem({ name: data.name || 'Unknown', status: data.status, barcode });
       beep(good);
+      
+      // Show result card
+      els.resultName.textContent = data.name || 'Unknown';
+      const isAlready = data.status === 'already_redeemed';
+      els.resultName.classList.toggle('already', isAlready);
+      els.resultMeta.textContent = isAlready ? 'Already admitted ✕' : 'Checked in ✓';
+      els.resultCard.style.display = 'flex';
     }
 
-    // Try to start camera
-    if (typeof Quagga !== 'undefined') {
-      Quagga.init({
-        inputStream: {
-          name: "Live",
-          type: "LiveStream",
-          target: els.preview,
-          constraints: {
-            width: 640,
-            height: 480,
-            facingMode: "environment"
-          },
-        },
-        locator: {
-          patchSize: "medium",
-          halfSample: true
-        },
-        numOfWorkers: 2,
-        decoder: {
-          readers: ["qr_code_reader", "code_128_reader", "ean_reader", "ean_8_reader", "code_39_reader", "code_39_vin_reader", "codabar_reader", "upc_reader", "upc_e_reader", "i2of5_reader", "2of5_reader", "code_93_reader"]
-        },
-        locate: true
-      }, function(err) {
-        if (err) {
-          console.log("Quagga init error:", err);
+    // Try to start camera with jsQR
+    if (typeof jsQR !== 'undefined') {
+      const canvas = document.createElement('canvas');
+      canvas.style.display = 'none';
+      document.body.appendChild(canvas);
+      const ctx = canvas.getContext('2d');
+      
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+        .then(stream => {
+          const video = document.createElement('video');
+          video.srcObject = stream;
+          video.setAttribute('playsinline', 'true');
+          video.play();
+          
+          // Create a container to hold the video
+          const container = els.preview;
+          container.innerHTML = '';
+          container.appendChild(video);
+          
+          let scanning = true;
+          
+          const scan = () => {
+            if (!scanning || video.videoWidth <= 0 || video.videoHeight <= 0) {
+              requestAnimationFrame(scan);
+              return;
+            }
+            
+            try {
+              canvas.width = video.videoWidth;
+              canvas.height = video.videoHeight;
+              ctx.drawImage(video, 0, 0);
+              
+              const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+              const code = jsQR(imageData.data, imageData.width, imageData.height);
+              
+              if (code) {
+                console.log("QR decoded:", code.data);
+                setStatus("Detected: " + code.data.substring(0, 10) + "...", "ok");
+                flashScanDetected();
+                beep(true);
+                setTimeout(() => setStatus("Processing...", null), 300);
+                lookup(code.data);
+                scanning = false;
+                setTimeout(() => scanning = true, 1500);
+              }
+            } catch (e) {
+              console.error("Scan error:", e);
+            }
+            
+            requestAnimationFrame(scan);
+          };
+          
+          video.onloadedmetadata = () => {
+            scan();
+            console.log("jsQR scanner started");
+            setStatus("Scanning...", null);
+          };
+        })
+        .catch(err => {
+          console.error("Camera error:", err);
           setStatus("Camera not available", "warn");
-          return;
-        }
-        Quagga.start();
-        setStatus("Scanning...", null);
-      });
-
-      Quagga.onDetected(function(result) {
-        const code = result.codeResult.code;
-        lookup(code);
-      });
+        });
     } else {
+      console.error("jsQR library not loaded");
       setStatus("Scanner not loaded", "bad");
     }
 
-    // Manual entry
-    els.manual.addEventListener('keydown', async (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        const val = els.manual.value.trim();
-        if (!val) return;
-        els.manual.value = '';
-        await lookup(val);
+    // Search functionality
+    els.search.addEventListener('input', async (e) => {
+      const query = e.target.value.trim();
+      els.searchResults.innerHTML = '';
+      
+      if (query.length < 2) return;
+      
+      try {
+        const res = await fetch('/api/search-registrants?q=' + encodeURIComponent(query));
+        const data = await res.json();
+        
+        if (!data.results || data.results.length === 0) {
+          els.searchResults.innerHTML = '<div class="muted" style="padding:10px">No results found</div>';
+          return;
+        }
+        
+        data.results.forEach(person => {
+          const div = document.createElement('div');
+          div.className = 'search-result';
+          
+          const checkedIn = person.redeemed_at !== null;
+          const statusClass = checkedIn ? 'checked-in' : 'not-checked-in';
+          const statusText = checkedIn ? '✓ Checked in' : 'Not checked in yet';
+          
+          div.innerHTML = `
+            <div class="search-result-name">${escapeHtml(person.first_name + ' ' + person.last_name)}</div>
+            <div class="search-result-email">${escapeHtml(person.email || '')}</div>
+            <div class="search-result-status ${statusClass}">${statusText}</div>
+          `;
+          
+          div.addEventListener('click', async () => {
+            await lookup(person.barcode_id);
+            els.search.value = '';
+            els.searchResults.innerHTML = '';
+          });
+          
+          els.searchResults.appendChild(div);
+        });
+      } catch (err) {
+        console.error('Search error:', err);
       }
     });
   </script>
