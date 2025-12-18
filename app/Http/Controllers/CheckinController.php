@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\EventbriteTicket;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use App\Models\Registration;
 
 class CheckinController extends Controller
@@ -21,6 +22,9 @@ class CheckinController extends Controller
     public function scan(Request $request)
     {
         $barcode = trim((string) $request->input('barcode'));
+        if (config('app.debug')) {
+            Log::debug('checkin.scan received', ['barcode' => $barcode, 'ip' => $request->ip()]);
+        }
         if ($barcode === '') {
             return response()->json(['error' => 'missing_barcode'], 422);
         }
@@ -33,11 +37,16 @@ class CheckinController extends Controller
             ->first();
 
         if (!$ticket) {
-            return response()->json([
+            $resp = [
                 'ok' => false,
                 'status' => 'not_found',
                 'barcode' => $barcode,
-            ]);
+            ];
+            if (config('app.debug')) {
+                // Echo back the received raw barcode for debugging
+                $resp['debug_received'] = $barcode;
+            }
+            return response()->json($resp);
         }
 
         $name = trim((string) ($ticket->first_name . ' ' . $ticket->last_name));

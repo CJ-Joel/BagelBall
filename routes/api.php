@@ -30,7 +30,7 @@ Route::get('/search-registrants', function (\Illuminate\Http\Request $request) {
         ->orWhere('last_name', 'like', '%' . $query . '%')
         ->orderBy('first_name', 'asc')
         ->limit(10)
-        ->get(['first_name', 'last_name', 'email', 'barcode_id', 'redeemed_at'])
+        ->get(['first_name', 'last_name', 'email', 'barcode_id', 'redeemed_at', 'order_date'])
         ->toArray();
     
     return response()->json(['results' => $results]);

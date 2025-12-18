@@ -366,13 +366,30 @@
         data.results.forEach(person => {
           const div = document.createElement('div');
           div.className = 'search-result';
-          
+
           const checkedIn = person.redeemed_at !== null;
           const statusClass = checkedIn ? 'checked-in' : 'not-checked-in';
           const statusText = checkedIn ? '✓ Checked in' : 'Not checked in yet';
-          
+
+          // Determine if order_date is today at 5:00pm or later
+          let nameHtml = escapeHtml(person.first_name + ' ' + person.last_name);
+          if (person.order_date) {
+            try {
+              const orderDate = new Date(person.order_date);
+              const now = new Date();
+              const isSameDay = orderDate.getFullYear() === now.getFullYear() &&
+                                orderDate.getMonth() === now.getMonth() &&
+                                orderDate.getDate() === now.getDate();
+              if (isSameDay && orderDate.getHours() >= 17) {
+                nameHtml += ' <span title="Order placed today at 5pm or later">🟡</span>';
+              }
+            } catch (e) {
+              // ignore parse errors
+            }
+          }
+
           div.innerHTML = `
-            <div class="search-result-name">${escapeHtml(person.first_name + ' ' + person.last_name)}</div>
+            <div class="search-result-name">${nameHtml}</div>
             <div class="search-result-email">${escapeHtml(person.email || '')}</div>
             <div class="search-result-status ${statusClass}">${statusText}</div>
           `;
