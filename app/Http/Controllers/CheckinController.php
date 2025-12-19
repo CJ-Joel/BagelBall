@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\EventbriteTicket;
+use App\Models\CheckinAudit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use App\Models\Registration;
@@ -46,6 +47,20 @@ class CheckinController extends Controller
                 // Echo back the received raw barcode for debugging
                 $resp['debug_received'] = $barcode;
             }
+            // Audit not-found lookup
+            try {
+                CheckinAudit::create([
+                    'eventbrite_ticket_id' => null,
+                    'barcode_id' => $barcode,
+                    'action' => 'scan',
+                    'status' => 'not_found',
+                    'actor' => $request->header('X-CHECKIN-TOKEN') ?? null,
+                    'ip_address' => $request->ip(),
+                    'user_agent' => substr($request->userAgent() ?? '', 0, 1000),
+                ]);
+            } catch (\Throwable $e) {
+                Log::debug('audit write failed', ['err' => $e->getMessage()]);
+            }
             return response()->json($resp);
         }
 
@@ -57,7 +72,22 @@ class CheckinController extends Controller
             $ticket->redeemed_at = now();
             $ticket->save();
         }
-            return response()->json([
+        // Record audit for scan
+        try {
+            CheckinAudit::create([
+                'eventbrite_ticket_id' => $ticket->id ?? null,
+                'barcode_id' => $ticket->barcode_id,
+                'action' => 'scan',
+                'status' => $alreadyRedeemed ? 'already_redeemed' : 'redeemed',
+                'actor' => $request->header('X-CHECKIN-TOKEN') ?? null,
+                'ip_address' => $request->ip(),
+                'user_agent' => substr($request->userAgent() ?? '', 0, 1000),
+            ]);
+        } catch (\Throwable $e) {
+            Log::debug('audit write failed', ['err' => $e->getMessage()]);
+        }
+
+        return response()->json([
             'ok' => true,
             'status' => $alreadyRedeemed ? 'already_redeemed' : 'redeemed',
             'name' => $name,
@@ -66,5 +96,70 @@ class CheckinController extends Controller
             'barcode_id' => $ticket->barcode_id,
             'redeemed_at' => optional($ticket->redeemed_at)->toIso8601String(),
             ]);
+    }
+
+    /**
+     * Reverse a checkin (clear redeemed_at) for a ticket identified by barcode or ticket id.
+     */
+    public function reverse(Request $request)
+    {
+        $barcode = trim((string) $request->input('barcode'));
+        if (config('app.debug')) {
+            Log::debug('checkin.reverse received', ['barcode' => $barcode, 'ip' => $request->ip()]);
+        }
+
+        if ($barcode === '') {
+            return response()->json(['error' => 'missing_barcode'], 422);
+        }
+
+        $ticket = EventbriteTicket::query()
+            ->where('barcode_id', $barcode)
+            ->orWhere('eventbrite_ticket_id', $barcode)
+            ->first();
+
+        if (! $ticket) {
+            return response()->json([
+                'ok' => false,
+                'status' => 'not_found',
+                'barcode' => $barcode,
+            ]);
+        }
+
+        if (! $ticket->isRedeemed()) {
+            return response()->json([
+                'ok' => false,
+                'status' => 'not_redeemed',
+                'ticket_id' => $ticket->eventbrite_ticket_id,
+                'barcode_id' => $ticket->barcode_id,
+            ]);
+        }
+
+        // Clear redeemed_at (reverse checkin)
+        $ticket->redeemed_at = null;
+        $ticket->save();
+
+        // Record audit for reverse
+        try {
+            CheckinAudit::create([
+                'eventbrite_ticket_id' => $ticket->id ?? null,
+                'barcode_id' => $ticket->barcode_id,
+                'action' => 'reverse',
+                'status' => 'reversed',
+                'actor' => $request->header('X-CHECKIN-TOKEN') ?? null,
+                'ip_address' => $request->ip(),
+                'user_agent' => substr($request->userAgent() ?? '', 0, 1000),
+            ]);
+        } catch (\Throwable $e) {
+            Log::debug('audit write failed', ['err' => $e->getMessage()]);
+        }
+
+        return response()->json([
+            'ok' => true,
+            'status' => 'reversed',
+            'ticket_id' => $ticket->eventbrite_ticket_id,
+            'barcode_id' => $ticket->barcode_id,
+            'name' => trim((string) ($ticket->first_name . ' ' . $ticket->last_name)),
+            'email' => $ticket->email,
+        ]);
     }
 }

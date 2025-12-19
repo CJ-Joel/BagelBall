@@ -34,3 +34,5 @@ Route::get('/admin', [\App\Http\Controllers\AdminController::class, 'ticketsSold
 
 Route::get('/checkin', [\App\Http\Controllers\CheckinController::class, 'index'])->middleware(\App\Http\Middleware\CheckinToken::class)->name('checkin.index');
 Route::post('/checkin/scan', [\App\Http\Controllers\CheckinController::class, 'scan'])->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class])->middleware(\App\Http\Middleware\CheckinToken::class)->name('checkin.scan');
+// Reverse a checkin (unredeem a ticket)
+Route::post('/checkin/reverse', [\App\Http\Controllers\CheckinController::class, 'reverse'])->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class])->middleware(\App\Http\Middleware\CheckinToken::class)->name('checkin.reverse');

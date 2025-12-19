@@ -116,6 +116,7 @@
 
   <script>
     const scanUrl = @json(route('checkin.scan'));
+    const reverseUrl = @json(route('checkin.reverse'));
     const csrf = @json(csrf_token());
     // If the page was opened with ?checkin_token=... include it for subsequent POSTs.
     // Fall back to server env only when present (use carefully).
@@ -140,6 +141,8 @@
       priorName: '—',
       currentName: null,
        resultHideTimer: null,
+      // Search request id to ignore out-of-order responses
+      searchReqId: 0,
     };
 
     function setStatus(text, kind) {
@@ -189,6 +192,50 @@
         <div class="log-meta">${new Date().toLocaleTimeString()} · ${escapeHtml(barcode || '')}</div>
       `;
 
+      // If this entry represents a redeemed ticket, add a Reverse button
+      if (status === 'redeemed' || status === 'already_redeemed') {
+        const btn = document.createElement('button');
+        btn.className = 'btn';
+        btn.style.marginLeft = '8px';
+        btn.textContent = 'Reverse';
+        btn.addEventListener('click', async (ev) => {
+          ev.preventDefault();
+          if (!confirm('Reverse this check-in? This will mark the ticket as not redeemed.')) return;
+          try {
+            btn.disabled = true;
+            btn.textContent = 'Reversing...';
+            const headers = { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf, 'Accept': 'application/json' };
+            if (checkinToken) { headers['X-CHECKIN-TOKEN'] = checkinToken; headers['Authorization'] = 'Bearer ' + checkinToken; }
+            const res = await fetch(reverseUrl, {
+              method: 'POST', headers, body: JSON.stringify({ barcode }), credentials: 'same-origin'
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.ok) {
+              alert('Reverse failed: ' + (data.status || res.status));
+              btn.disabled = false;
+              btn.textContent = 'Reverse';
+              return;
+            }
+            // Update the pill to show reversed
+            const pill = div.querySelector('.pill');
+            if (pill) {
+              pill.textContent = 'Reversed';
+              pill.className = 'pill bad';
+            }
+            btn.textContent = 'Reversed';
+            btn.disabled = true;
+          } catch (err) {
+            console.error('Reverse error', err);
+            alert('Reverse failed');
+            btn.disabled = false;
+            btn.textContent = 'Reverse';
+          }
+        });
+        // append button into the meta row
+        const meta = div.querySelector('.log-meta');
+        if (meta) meta.appendChild(btn);
+      }
+
       els.log.prepend(div);
     }
 
@@ -217,12 +264,21 @@
       const res = await fetch(scanUrl, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ barcode })
+        body: JSON.stringify({ barcode }),
+        // Include credentials so browser-supplied HTTP Basic auth is sent with the AJAX request.
+        // This lets server-level basic auth (if enabled for /checkin) succeed for the POST.
+        credentials: 'same-origin'
       });
 
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setStatus('Error', 'bad');
+        if (res.status === 401) {
+          setStatus('Unauthorized', 'bad');
+        } else if (res.status === 422) {
+          setStatus('Invalid request', 'bad');
+        } else {
+          setStatus('Error', 'bad');
+        }
         beep(false);
         flashScreen(false);
         return;
@@ -360,21 +416,33 @@
     }
 
     // Search functionality
-    els.search.addEventListener('input', async (e) => {
-      const query = e.target.value.trim();
-      els.searchResults.innerHTML = '';
-      
-      if (query.length < 2) return;
-      
+    // Debounce helper
+    function debounce(fn, wait) {
+      let t;
+      return (...args) => {
+        clearTimeout(t);
+        t = setTimeout(() => fn(...args), wait);
+      };
+    }
+
+    const doSearch = async (query, myId) => {
+      if (query.length < 2) {
+        els.searchResults.innerHTML = '';
+        return;
+      }
       try {
         const res = await fetch('/api/search-registrants?q=' + encodeURIComponent(query));
         const data = await res.json();
-        
+
+        // Ignore this response if a newer search has been started
+        if (myId !== state.searchReqId) return;
+
+        els.searchResults.innerHTML = '';
         if (!data.results || data.results.length === 0) {
           els.searchResults.innerHTML = '<div class="muted" style="padding:10px">No results found</div>';
           return;
         }
-        
+
         data.results.forEach(person => {
           const div = document.createElement('div');
           div.className = 'search-result';
@@ -400,23 +468,38 @@
             }
           }
 
+          let emailHtml = escapeHtml(person.email || '');
+          if (person.pregame_name) {
+            emailHtml += ' | ' + escapeHtml(person.pregame_name);
+          }
+
           div.innerHTML = `
             <div class="search-result-name">${nameHtml}</div>
-            <div class="search-result-email">${escapeHtml(person.email || '')}</div>
+            <div class="search-result-email">${emailHtml}</div>
             <div class="search-result-status ${statusClass}">${statusText}</div>
           `;
-          
+
           div.addEventListener('click', async () => {
             await lookup(person.barcode_id);
             els.search.value = '';
             els.searchResults.innerHTML = '';
           });
-          
+
           els.searchResults.appendChild(div);
         });
       } catch (err) {
         console.error('Search error:', err);
       }
+    };
+
+    const debouncedSearch = debounce((q, id) => doSearch(q, id), 180);
+
+    els.search.addEventListener('input', (e) => {
+      const query = e.target.value.trim();
+      // increment request id so older responses are ignored
+      state.searchReqId += 1;
+      const myId = state.searchReqId;
+      debouncedSearch(query, myId);
     });
   </script>
 </body>
