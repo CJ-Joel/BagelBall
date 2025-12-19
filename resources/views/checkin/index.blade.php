@@ -268,8 +268,27 @@
       state.uiReadOnly = !state.uiReadOnly;
       localStorage.setItem('checkin_ui_readonly', state.uiReadOnly ? '1' : '0');
       refreshToggleButton();
+      // Start/stop scanner based on new state
+      if (serverReadOnly || state.uiReadOnly) {
+        stopScanner();
+      } else {
+        startScanner();
+      }
     });
     refreshToggleButton();
+
+    // Sync read-only toggle across tabs/windows
+    window.addEventListener('storage', (ev) => {
+      if (ev.key === 'checkin_ui_readonly') {
+        state.uiReadOnly = (ev.newValue === '1');
+        refreshToggleButton();
+        if (serverReadOnly || state.uiReadOnly) {
+          stopScanner();
+        } else {
+          startScanner();
+        }
+      }
+    });
 
     function escapeHtml(s) {
       return String(s).replace(/[&<>\"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]));
