@@ -209,6 +209,7 @@ class ProcessEventbriteOrder implements ShouldQueue
                 'order_date' => $orderDate,
                 'barcode_id' => $barcodeId,
                 'gender' => $gender,
+                'pregame_interest' => $this->extractPregameInterest($attendee),
             ];
             
             try {
@@ -271,6 +272,33 @@ class ProcessEventbriteOrder implements ShouldQueue
 
             foreach (['gender_raw', 'sex'] as $k) {
                 if (!empty($profile[$k])) return $profile[$k];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Extract answer to any 'pregame' related custom question from attendee payload.
+     */
+    private function extractPregameInterest(array $attendee): ?string
+    {
+        $answers = [];
+        if (!empty($attendee['profile']['answers']) && is_array($attendee['profile']['answers'])) {
+            $answers = $attendee['profile']['answers'];
+        }
+        if (!empty($attendee['answers']) && is_array($attendee['answers'])) {
+            $answers = array_merge($answers, $attendee['answers']);
+        }
+
+        foreach ($answers as $ans) {
+            $question = $ans['question'] ?? $ans['label'] ?? '';
+            $value = $ans['answer'] ?? $ans['value'] ?? null;
+            if (!$question || $value === null) continue;
+
+            $q = strtolower($question);
+            if (stripos($q, 'pregame') !== false || stripos($q, 'pre-game') !== false || stripos($q, 'join a pre') !== false || stripos($q, 'interested') !== false) {
+                return is_array($value) ? json_encode($value) : (string)$value;
             }
         }
 

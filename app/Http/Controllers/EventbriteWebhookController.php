@@ -599,6 +599,7 @@ class EventbriteWebhookController extends Controller
                         'order_date' => $orderDate,
                         'barcode_id' => $this->extractBarcodeId($attendee),
                         'gender' => $this->extractGender($attendee),
+                        'pregame_interest' => $this->extractPregameInterest($attendee),
                     ];
                     
                     EventbriteTicket::updateOrCreate(
@@ -620,5 +621,32 @@ class EventbriteWebhookController extends Controller
         }
 
         return "Summary: {$totalOrders} orders, {$totalAttendees} attendees synced";
+    }
+
+    /**
+     * Extract an attendee's answer to any 'pregame' related custom question.
+     */
+    private function extractPregameInterest(array $attendee): ?string
+    {
+        $answers = [];
+        if (!empty($attendee['profile']) && !empty($attendee['profile']['answers']) && is_array($attendee['profile']['answers'])) {
+            $answers = $attendee['profile']['answers'];
+        }
+        if (!empty($attendee['answers']) && is_array($attendee['answers'])) {
+            $answers = array_merge($answers, $attendee['answers']);
+        }
+
+        foreach ($answers as $ans) {
+            $question = $ans['question'] ?? $ans['label'] ?? '';
+            $value = $ans['answer'] ?? $ans['value'] ?? null;
+            if (!$question || $value === null) continue;
+
+            $q = strtolower($question);
+            if (stripos($q, 'pregame') !== false || stripos($q, 'pre-game') !== false || stripos($q, 'join a pre') !== false || stripos($q, 'interested') !== false) {
+                return is_array($value) ? json_encode($value) : (string)$value;
+            }
+        }
+
+        return null;
     }
 }

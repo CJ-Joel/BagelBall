@@ -184,6 +184,7 @@ class SyncEventbriteOrders extends Command
                         'order_date' => $attendee['created'] ?? null,
                         'barcode_id' => $this->extractBarcodeId($attendee),
                         'gender' => $this->extractGender($attendee),
+                        'pregame_interest' => $this->extractPregameInterest($attendee),
                     ];
                     
                     // Only set redeemed_at if it's not already set
@@ -216,5 +217,39 @@ class SyncEventbriteOrders extends Command
         }
 
         $this->info("  Summary: {$totalOrders} orders, {$totalAttendees} attendees synced");
+    }
+
+    /**
+     * Try to extract whether an attendee answered that they're interested in joining a pregame.
+     * Looks through common payload shapes: profile.answers or attendee.answers, matches question text.
+     */
+    private function extractPregameInterest(array $attendee): ?string
+    {
+        $sources = [];
+        if (!empty($attendee['profile']) && is_array($attendee['profile'])) {
+            $profile = $attendee['profile'];
+            if (!empty($profile['answers']) && is_array($profile['answers'])) {
+                $sources[] = $profile['answers'];
+            }
+        }
+
+        if (!empty($attendee['answers']) && is_array($attendee['answers'])) {
+            $sources[] = $attendee['answers'];
+        }
+
+        foreach ($sources as $answers) {
+            foreach ($answers as $answer) {
+                $question = $answer['question'] ?? $answer['label'] ?? '';
+                $value = $answer['answer'] ?? $answer['value'] ?? null;
+                if (!$question || $value === null) continue;
+
+                $q = strtolower($question);
+                if (stripos($q, 'pregame') !== false || stripos($q, 'pre-game') !== false || stripos($q, 'join a pre') !== false || stripos($q, 'interested in hosting') !== false || stripos($q, 'interested') !== false) {
+                    return is_array($value) ? json_encode($value) : (string)$value;
+                }
+            }
+        }
+
+        return null;
     }
 }

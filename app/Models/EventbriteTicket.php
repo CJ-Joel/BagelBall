@@ -15,6 +15,7 @@ class EventbriteTicket extends Model
         'email',
         'barcode_id',
         'gender',
+        'pregame_interest',
         'redeemed_at',
         'order_date'
     ];
