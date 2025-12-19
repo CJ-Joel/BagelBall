@@ -22,6 +22,24 @@ class CheckinController extends Controller
 
     public function scan(Request $request)
     {
+        // Respect server-side read-only mode if enabled via env CHECKIN_READONLY
+        if (env('CHECKIN_READONLY', false)) {
+            try {
+                CheckinAudit::create([
+                    'eventbrite_ticket_id' => null,
+                    'barcode_id' => trim((string) $request->input('barcode')) ?: null,
+                    'action' => 'scan_attempt',
+                    'status' => 'read_only',
+                    'actor' => $request->header('X-CHECKIN-TOKEN') ?? null,
+                    'ip_address' => $request->ip(),
+                    'user_agent' => substr($request->userAgent() ?? '', 0, 1000),
+                ]);
+            } catch (\Throwable $e) {
+                Log::debug('audit write failed', ['err' => $e->getMessage()]);
+            }
+
+            return response()->json(['ok' => false, 'status' => 'read_only', 'message' => 'Check-in is read-only'], 423);
+        }
         $barcode = trim((string) $request->input('barcode'));
         if (config('app.debug')) {
             Log::debug('checkin.scan received', ['barcode' => $barcode, 'ip' => $request->ip()]);
@@ -103,6 +121,24 @@ class CheckinController extends Controller
      */
     public function reverse(Request $request)
     {
+        // Respect server-side read-only mode if enabled via env CHECKIN_READONLY
+        if (env('CHECKIN_READONLY', false)) {
+            try {
+                CheckinAudit::create([
+                    'eventbrite_ticket_id' => null,
+                    'barcode_id' => trim((string) $request->input('barcode')) ?: null,
+                    'action' => 'reverse_attempt',
+                    'status' => 'read_only',
+                    'actor' => $request->header('X-CHECKIN-TOKEN') ?? null,
+                    'ip_address' => $request->ip(),
+                    'user_agent' => substr($request->userAgent() ?? '', 0, 1000),
+                ]);
+            } catch (\Throwable $e) {
+                Log::debug('audit write failed', ['err' => $e->getMessage()]);
+            }
+
+            return response()->json(['ok' => false, 'status' => 'read_only', 'message' => 'Check-in is read-only'], 423);
+        }
         $barcode = trim((string) $request->input('barcode'));
         if (config('app.debug')) {
             Log::debug('checkin.reverse received', ['barcode' => $barcode, 'ip' => $request->ip()]);

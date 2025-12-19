@@ -69,10 +69,18 @@
   <div class="wrap">
     <div class="top">
       <div>
-        <div style="font-size:20px;font-weight:900">Check-in scanner</div>
-        <div class="muted">Scan or manually enter barcode</div>
+        <div style="font-size:20px;font-weight:900">🥯 Check-in scanner</div>
       </div>
-      <!-- Token-based authentication in use — logout button removed -->
+      <div style="display:flex;align-items:center;gap:8px">
+        <!-- Show server-side read-only indicator and UI toggle -->
+        <?php $serverReadOnly = (bool) env('CHECKIN_READONLY', false); ?>
+        <div id="serverReadOnlyBadge" class="muted" style="font-weight:700">
+          <?php if ($serverReadOnly): ?>
+            Read-only (server)
+          <?php endif; ?>
+        </div>
+        <button id="toggleReadOnlyBtn" class="btn" style="font-size:13px;padding:8px 10px">Read-only: Off</button>
+      </div>
     </div>
 
     <div class="row">
@@ -117,6 +125,7 @@
   <script>
     const scanUrl = @json(route('checkin.scan'));
     const reverseUrl = @json(route('checkin.reverse'));
+    const serverReadOnly = @json((bool) env('CHECKIN_READONLY', false));
     const csrf = @json(csrf_token());
     // If the page was opened with ?checkin_token=... include it for subsequent POSTs.
     // Fall back to server env only when present (use carefully).
@@ -143,6 +152,8 @@
        resultHideTimer: null,
       // Search request id to ignore out-of-order responses
       searchReqId: 0,
+      // UI-level read-only flag (stored in localStorage)
+      uiReadOnly: (localStorage.getItem('checkin_ui_readonly') === '1'),
     };
 
     function setStatus(text, kind) {
@@ -199,6 +210,12 @@
         btn.style.marginLeft = '8px';
         btn.textContent = 'Reverse';
         btn.addEventListener('click', async (ev) => {
+          // Respect server-side read-only and UI toggle
+          const effectiveReadOnly = serverReadOnly || state.uiReadOnly;
+          if (effectiveReadOnly) {
+            alert('Check-in is in read-only mode; reversals are disabled.');
+            return;
+          }
           ev.preventDefault();
           if (!confirm('Reverse this check-in? This will mark the ticket as not redeemed.')) return;
           try {
@@ -239,12 +256,33 @@
       els.log.prepend(div);
     }
 
+    // Read-only toggle handling
+    const toggleBtn = document.getElementById('toggleReadOnlyBtn');
+    function refreshToggleButton() {
+      const effective = serverReadOnly || state.uiReadOnly;
+      toggleBtn.textContent = 'Read-only: ' + (effective ? 'On' : 'Off');
+      toggleBtn.disabled = serverReadOnly; // cannot toggle if server enforces read-only
+      if (serverReadOnly) toggleBtn.classList.add('btn');
+    }
+    toggleBtn.addEventListener('click', () => {
+      state.uiReadOnly = !state.uiReadOnly;
+      localStorage.setItem('checkin_ui_readonly', state.uiReadOnly ? '1' : '0');
+      refreshToggleButton();
+    });
+    refreshToggleButton();
+
     function escapeHtml(s) {
       return String(s).replace(/[&<>\"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]));
     }
 
     async function lookup(barcode) {
       const now = Date.now();
+      // Prevent write operations when read-only is active
+      if (serverReadOnly || state.uiReadOnly) {
+        setStatus('Read-only mode (disabled)', 'bad');
+        beep(false);
+        return;
+      }
       const last = state.dedupe.get(barcode);
       if (last && (now - last) < 1500) return;
       state.dedupe.set(barcode, now);
@@ -336,83 +374,125 @@
        }, 10000);
     }
 
-    // Try to start camera with jsQR
-    if (typeof jsQR !== 'undefined') {
+    // Scanner management: start/stop behavior, disable when read-only
+    const scanner = {
+      stream: null,
+      video: null,
+      canvas: null,
+      ctx: null,
+      scanning: false,
+    };
+
+    function stopScanner() {
+      try {
+        if (scanner.stream) {
+          scanner.stream.getTracks().forEach(t => t.stop());
+          scanner.stream = null;
+        }
+        if (scanner.video && scanner.video.parentNode) {
+          scanner.video.pause();
+          scanner.video.srcObject = null;
+          scanner.video.parentNode.removeChild(scanner.video);
+        }
+        if (scanner.canvas && scanner.canvas.parentNode) {
+          scanner.canvas.parentNode.removeChild(scanner.canvas);
+        }
+      } catch (e) {
+        console.error('Error stopping scanner', e);
+      }
+      scanner.video = null; scanner.canvas = null; scanner.ctx = null; scanner.scanning = false;
+      els.preview.innerHTML = '';
+      setStatus(serverReadOnly || state.uiReadOnly ? 'Read-only mode (camera off)' : 'Ready', serverReadOnly || state.uiReadOnly ? 'bad' : null);
+    }
+
+    async function startScanner() {
+      if (typeof jsQR === 'undefined') {
+        console.error('jsQR library not loaded');
+        setStatus('Scanner not loaded', 'bad');
+        return;
+      }
+      // If read-only, do not start camera
+      if (serverReadOnly || state.uiReadOnly) {
+        setStatus('Read-only mode (camera disabled)', 'bad');
+        return;
+      }
+      // create canvas
       const canvas = document.createElement('canvas');
       canvas.style.display = 'none';
       document.body.appendChild(canvas);
       const ctx = canvas.getContext('2d');
-      
-      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
-        .then(stream => {
-          const video = document.createElement('video');
-          video.srcObject = stream;
-          video.setAttribute('playsinline', 'true');
-          video.play();
-          
-          // Create a container to hold the video
-          const container = els.preview;
-          container.innerHTML = '';
-          container.appendChild(video);
-          
-          let scanning = true;
-          
-          const scan = () => {
-            if (!scanning || video.videoWidth <= 0 || video.videoHeight <= 0) {
-              requestAnimationFrame(scan);
-              return;
-            }
-            
-            try {
-              canvas.width = video.videoWidth;
-              canvas.height = video.videoHeight;
-              ctx.drawImage(video, 0, 0);
-              
-              const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-              const code = jsQR(imageData.data, imageData.width, imageData.height);
-              
-              if (code) {
-                console.log("QR decoded:", code.data);
 
-                // Ignore very short numeric codes (likely false positives)
-                const digitCount = (code.data.match(/\d/g) || []).length;
-                if (digitCount < 6) {
-                  // Briefly show ignored status but do not trigger lookup/beep
-                  setStatus("Ignored short code", "warn");
-                  flashScanDetected();
-                  // Pause scanning briefly to avoid repeated false-detections
-                  scanning = false;
-                  setTimeout(() => scanning = true, 1000);
-                } else {
-                  setStatus("Detected: " + code.data.substring(0, 10) + "...", "ok");
-                  flashScanDetected();
-                  beep(true);
-                  setTimeout(() => setStatus("Processing...", null), 300);
-                  lookup(code.data);
-                  scanning = false;
-                  setTimeout(() => scanning = true, 1500);
-                }
-              }
-            } catch (e) {
-              console.error("Scan error:", e);
-            }
-            
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        scanner.stream = stream;
+        const video = document.createElement('video');
+        video.srcObject = stream;
+        video.setAttribute('playsinline', 'true');
+        video.play();
+
+        // Create a container to hold the video
+        const container = els.preview;
+        container.innerHTML = '';
+        container.appendChild(video);
+
+        scanner.video = video;
+        scanner.canvas = canvas;
+        scanner.ctx = ctx;
+        scanner.scanning = true;
+
+        const scan = () => {
+          if (!scanner.scanning || !scanner.video || scanner.video.videoWidth <= 0 || scanner.video.videoHeight <= 0) {
             requestAnimationFrame(scan);
-          };
-          
-          video.onloadedmetadata = () => {
-            scan();
-            console.log("jsQR scanner started");
-            setStatus("Scanning...", null);
-          };
-        })
-        .catch(err => {
-          console.error("Camera error:", err);
-          setStatus("Camera not available", "warn");
-        });
-    } else {
-      console.error("jsQR library not loaded");
-      setStatus("Scanner not loaded", "bad");
+            return;
+          }
+          try {
+            scanner.canvas.width = scanner.video.videoWidth;
+            scanner.canvas.height = scanner.video.videoHeight;
+            scanner.ctx.drawImage(scanner.video, 0, 0);
+
+            const imageData = scanner.ctx.getImageData(0, 0, scanner.canvas.width, scanner.canvas.height);
+            const code = jsQR(imageData.data, imageData.width, imageData.height);
+
+            if (code) {
+              // Ignore very short numeric codes (likely false positives)
+              const digitCount = (code.data.match(/\d/g) || []).length;
+              if (digitCount < 6) {
+                setStatus('Ignored short code', 'warn');
+                flashScanDetected();
+                scanner.scanning = false;
+                setTimeout(() => { if (scanner) scanner.scanning = true; }, 1000);
+              } else {
+                setStatus('Detected: ' + code.data.substring(0, 10) + '...', 'ok');
+                flashScanDetected();
+                beep(true);
+                setTimeout(() => setStatus('Processing...', null), 300);
+                lookup(code.data);
+                scanner.scanning = false;
+                setTimeout(() => { if (scanner) scanner.scanning = true; }, 1500);
+              }
+            }
+          } catch (e) {
+            console.error('Scan error:', e);
+          }
+          requestAnimationFrame(scan);
+        };
+
+        video.onloadedmetadata = () => {
+          scan();
+          console.log('jsQR scanner started');
+          setStatus('Scanning...', null);
+        };
+      } catch (err) {
+        console.error('Camera error:', err);
+        setStatus('Camera not available', 'warn');
+      }
+    }
+
+    // Start scanner unless read-only
+    if (!serverReadOnly && !state.uiReadOnly) {
+      startScanner();
+    } else if (serverReadOnly || state.uiReadOnly) {
+      setStatus('Read-only mode (camera disabled)', 'bad');
     }
 
     // Search functionality
@@ -460,8 +540,14 @@
               const isSameDay = orderDate.getFullYear() === now.getFullYear() &&
                                 orderDate.getMonth() === now.getMonth() &&
                                 orderDate.getDate() === now.getDate();
-              if (isSameDay && orderDate.getHours() >= 17) {
-                nameHtml += ' <span title="Order placed today at 5pm or later">🟡</span>';
+              // Only show icon/time when read-only is active (server or UI)
+              const effectiveReadOnly = serverReadOnly || state.uiReadOnly;
+              if (isSameDay && effectiveReadOnly) {
+                // Adjust time by subtracting 5 hours to account for timezone offset
+                const adjusted = new Date(orderDate.getTime() - (5 * 60 * 60 * 1000));
+                const timeStr = adjusted.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+                nameHtml += ' <span title="Order placed today">🟡</span>';
+                nameHtml += ` <span class="muted">(ticket purchased at ${escapeHtml(timeStr)})</span>`;
               }
             } catch (e) {
               // ignore parse errors
