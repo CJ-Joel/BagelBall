@@ -236,6 +236,56 @@ class EventbriteWebhookController extends Controller
                 'barcode_id' => $this->extractBarcodeId($attendee),
                 'gender' => $this->extractGender($attendee),
             ];
+            // Detect used/checked-in status and set redeemed_at when appropriate.
+            $existingTicket = EventbriteTicket::where('eventbrite_ticket_id', $eventbriteTicketId)->first();
+            $barcodeUsed = false;
+            $truthyStatuses = ['used','scanned','redeemed','consumed','checked_in','checked-in','checkedin'];
+
+            if (!empty($attendee['barcodes']) && is_array($attendee['barcodes'])) {
+                foreach ($attendee['barcodes'] as $b) {
+                    $candidates = is_array($b) ? array_values($b) : [$b];
+                    foreach ($candidates as $val) {
+                        if (!is_scalar($val)) continue;
+                        $s = strtolower((string)$val);
+                        foreach ($truthyStatuses as $tok) {
+                            if (strpos($s, $tok) !== false) { $barcodeUsed = true; break 3; }
+                        }
+                    }
+                }
+            }
+            if (! $barcodeUsed) {
+                if (!empty($attendee['checked_in']) && ($attendee['checked_in'] === true || strtolower((string)$attendee['checked_in']) === 'true')) {
+                    $barcodeUsed = true;
+                }
+            }
+            if (! $barcodeUsed && !empty($attendee['status'])) {
+                $s = strtolower((string)$attendee['status']);
+                foreach ($truthyStatuses as $tok) {
+                    if (strpos($s, $tok) !== false) { $barcodeUsed = true; break; }
+                }
+            }
+
+            if ($barcodeUsed) {
+                Log::info('Eventbrite barcode reported as used (storeTickets)', [
+                    'eventbrite_ticket_id' => $eventbriteTicketId,
+                    'existing_ticket_id' => $existingTicket->id ?? null,
+                    'existing_redeemed_at' => $existingTicket->redeemed_at ?? null,
+                ]);
+                if (! $existingTicket || is_null($existingTicket->redeemed_at)) {
+                    $updateData['redeemed_at'] = Carbon::now()->format('Y-m-d H:i:s');
+                    Log::info('Setting redeemed_at from Eventbrite webhook (storeTickets)', [
+                        'eventbrite_ticket_id' => $eventbriteTicketId,
+                        'redeemed_at' => $updateData['redeemed_at'],
+                    ]);
+                } else {
+                    Log::info('Not overwriting existing redeemed_at (storeTickets)', [
+                        'eventbrite_ticket_id' => $eventbriteTicketId,
+                        'existing_redeemed_at' => $existingTicket->redeemed_at,
+                    ]);
+                }
+            } else {
+                Log::info('Eventbrite barcode not marked used (storeTickets)', ['eventbrite_ticket_id' => $eventbriteTicketId]);
+            }
             
             // Check if ticket already exists to log if this is an update
             $existingTicket = EventbriteTicket::where('eventbrite_ticket_id', $eventbriteTicketId)->first();
