@@ -19,7 +19,11 @@
                     </div>
                     <div class="mb-3 text-gray-300 text-sm">{{ $pregame->description }}</div>
                     <div class="mb-3 text-xs text-gray-400">Spots left: {{ $pregame->spotsRemaining() }}</div>
-                    <a href="{{ route('pregames.signup', $pregame) }}" class="block sm:inline-block px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white font-semibold text-center text-base">Sign Up</a>
+                    @if($pregame->isFull())
+                        <span class="block sm:inline-block px-4 py-2 bg-gray-600 rounded text-gray-400 font-semibold text-center text-base cursor-not-allowed">Full - No Spots Available</span>
+                    @else
+                        <a href="{{ route('pregames.signup', $pregame) }}" class="block sm:inline-block px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white font-semibold text-center text-base">Sign Up</a>
+                    @endif
                 </li>
             @endforeach
         </ul>

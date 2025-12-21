@@ -165,6 +165,64 @@ class AdminController extends Controller
             'unknown' => (int)($genderRow->unknown_count ?? 0),
         ];
 
+        // ========== Night of Operations Data ==========
+        // Ticket counts
+        $ticketsSold = EventbriteTicket::count();
+        $ticketsAdmitted = EventbriteTicket::whereNotNull('redeemed_at')->count();
+        $ticketsOutstanding = $ticketsSold - $ticketsAdmitted;
+
+        // Scans before/after 10:05 PM (using redeemed_at time portion)
+        // We check if the TIME part of redeemed_at is before or after 22:05:00
+        $scansBefore1005 = EventbriteTicket::whereNotNull('redeemed_at')
+            ->whereRaw("TIME(redeemed_at) < '22:05:00'")
+            ->count();
+        $scansAfter1005 = EventbriteTicket::whereNotNull('redeemed_at')
+            ->whereRaw("TIME(redeemed_at) >= '22:05:00'")
+            ->count();
+
+        // Bar chart: scans by 15-min increment over a 5-hour window (e.g., 7 PM to midnight = 20 intervals)
+        // We'll bucket by the TIME portion of redeemed_at into 15-min slots
+        $scansByInterval = EventbriteTicket::selectRaw(
+            "CONCAT(
+                LPAD(HOUR(redeemed_at), 2, '0'), ':',
+                LPAD(FLOOR(MINUTE(redeemed_at) / 15) * 15, 2, '0')
+            ) as time_slot,
+            COUNT(*) as count"
+        )
+        ->whereNotNull('redeemed_at')
+        ->groupBy('time_slot')
+        ->orderBy('time_slot')
+        ->get();
+
+        // Build full set of 15-min labels from 7 PM (19:00) to midnight (00:00) = 5 hours = 20 slots
+        $intervalLabels = [];
+        $intervalCounts = [];
+        $slotMap = $scansByInterval->pluck('count', 'time_slot')->toArray();
+
+        for ($hour = 19; $hour <= 23; $hour++) {
+            for ($min = 0; $min < 60; $min += 15) {
+                $slot = sprintf('%02d:%02d', $hour, $min);
+                $intervalLabels[] = $slot;
+                $intervalCounts[] = $slotMap[$slot] ?? 0;
+            }
+        }
+        // Add midnight slot
+        $intervalLabels[] = '00:00';
+        $intervalCounts[] = $slotMap['00:00'] ?? 0;
+
+        // Gender breakdown of scanned (admitted) tickets only
+        $scannedGenderRow = EventbriteTicket::selectRaw(
+            "SUM(CASE WHEN LOWER(TRIM(gender)) IN ('male','m') THEN 1 ELSE 0 END) as male_count, " .
+            "SUM(CASE WHEN LOWER(TRIM(gender)) IN ('female','f') THEN 1 ELSE 0 END) as female_count, " .
+            "SUM(CASE WHEN gender IS NULL OR TRIM(gender) = '' THEN 1 ELSE 0 END) as unknown_count"
+        )->whereNotNull('redeemed_at')->first();
+
+        $scannedGenderCounts = [
+            'male' => (int)($scannedGenderRow->male_count ?? 0),
+            'female' => (int)($scannedGenderRow->female_count ?? 0),
+            'unknown' => (int)($scannedGenderRow->unknown_count ?? 0),
+        ];
+
         return view('admin.tickets-sold-by-day', [
             'labels' => $labels,
             'currentCounts' => $alignedCurrent,
@@ -172,6 +230,15 @@ class AdminController extends Controller
             'totalSignedUp' => $totalSignedUp,
             'pregameBreakdown' => $pregameBreakdown,
             'genderCounts' => $genderCounts,
+            // Night of Operations
+            'ticketsSold' => $ticketsSold,
+            'ticketsAdmitted' => $ticketsAdmitted,
+            'ticketsOutstanding' => $ticketsOutstanding,
+            'scansBefore1005' => $scansBefore1005,
+            'scansAfter1005' => $scansAfter1005,
+            'intervalLabels' => $intervalLabels,
+            'intervalCounts' => $intervalCounts,
+            'scannedGenderCounts' => $scannedGenderCounts,
         ]);
     }
 }

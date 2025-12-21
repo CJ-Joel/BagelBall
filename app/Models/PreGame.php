@@ -24,7 +24,15 @@ class PreGame extends Model
 
     public function spotsRemaining(): int
     {
-        return $this->capacity - $this->registrations()->count();
+        // Count both registrants and their friends
+        $registrantCount = $this->registrations()
+            ->selectRaw('SUM(
+                CASE WHEN email IS NOT NULL AND email <> "" THEN 1 ELSE 0 END +
+                CASE WHEN friend_email IS NOT NULL AND friend_email <> "" THEN 1 ELSE 0 END
+            ) as total_count')
+            ->value('total_count') ?? 0;
+        
+        return max(0, $this->capacity - $registrantCount);
     }
 
     public function isFull(): bool
