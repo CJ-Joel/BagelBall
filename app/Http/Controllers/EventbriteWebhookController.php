@@ -3,6 +3,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\EventbriteTicket;
+use App\Models\CheckinAudit;
 use App\Models\PreGame;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -229,6 +230,7 @@ class EventbriteWebhookController extends Controller
             // Detect used/checked-in status and set redeemed_at when appropriate.
             $existingTicket = EventbriteTicket::where('eventbrite_ticket_id', $eventbriteTicketId)->first();
             $barcodeUsed = false;
+            $setRedeemed = false;
             $truthyStatuses = ['used','scanned','redeemed','consumed','checked_in','checked-in','checkedin'];
 
             if (!empty($attendee['barcodes']) && is_array($attendee['barcodes'])) {
@@ -261,6 +263,7 @@ class EventbriteWebhookController extends Controller
 
                 if (! $existingTicket || is_null($existingTicket->redeemed_at)) {
                     $updateData['redeemed_at'] = $redeemedAt;
+                    $setRedeemed = true;
                     Log::info('Setting redeemed_at from Eventbrite webhook', [
                         'eventbrite_ticket_id' => $eventbriteTicketId,
                         'redeemed_at' => $updateData['redeemed_at'],
@@ -281,7 +284,24 @@ class EventbriteWebhookController extends Controller
                 ['eventbrite_ticket_id' => $eventbriteTicketId],
                 $updateData
             );
-            
+
+            // If we set redeemed_at from Eventbrite, write a CheckinAudit row so it's visible in the checkin audit log
+            if (!empty($setRedeemed)) {
+                try {
+                    CheckinAudit::create([
+                        'eventbrite_ticket_id' => $ticket->id ?? null,
+                        'barcode_id' => $updateData['barcode_id'] ?? null,
+                        'action' => 'scan',
+                        'status' => 'redeemed',
+                        'actor' => 'eventbrite_webhook',
+                        'ip_address' => null,
+                        'user_agent' => 'eventbrite_webhook',
+                    ]);
+                } catch (\Throwable $e) {
+                    Log::debug('audit write failed (webhook)', ['err' => $e->getMessage()]);
+                }
+            }
+
             Log::info('Ticket stored from webhook', [
                 'ticket_id' => $eventbriteTicketId,
                 'order_id' => $orderId,
@@ -678,6 +698,7 @@ class EventbriteWebhookController extends Controller
                     // Detect barcode/attendee status indicating the ticket has been used.
                     // Eventbrite payloads vary; check several possible places and status names.
                     $barcodeUsed = false;
+                    $setRedeemed = false;
                     $truthyStatuses = ['used','scanned','redeemed','consumed','checked_in','checked-in','checkedin'];
 
                     // Check barcodes array entries for any status-like fields
@@ -738,6 +759,7 @@ class EventbriteWebhookController extends Controller
 
                         if (! $existingTicket || is_null($existingTicket->redeemed_at)) {
                             $updateData['redeemed_at'] = $redeemedAt;
+                            $setRedeemed = true;
                             Log::info('Setting redeemed_at from Eventbrite webhook', [
                                 'eventbrite_ticket_id' => $eventbriteTicketId,
                                 'redeemed_at' => $updateData['redeemed_at'],
@@ -750,11 +772,27 @@ class EventbriteWebhookController extends Controller
                         }
                     }
                     
-                    EventbriteTicket::updateOrCreate(
+                    $ticket = EventbriteTicket::updateOrCreate(
                         ['eventbrite_ticket_id' => $eventbriteTicketId],
                         $updateData
                     );
-                    
+
+                    if (!empty($setRedeemed)) {
+                        try {
+                            CheckinAudit::create([
+                                'eventbrite_ticket_id' => $ticket->id ?? null,
+                                'barcode_id' => $updateData['barcode_id'] ?? null,
+                                'action' => 'scan',
+                                'status' => 'redeemed',
+                                'actor' => 'eventbrite_webhook',
+                                'ip_address' => null,
+                                'user_agent' => 'eventbrite_webhook',
+                            ]);
+                        } catch (\Throwable $e) {
+                            Log::debug('audit write failed (webhook)', ['err' => $e->getMessage()]);
+                        }
+                    }
+
                     $totalAttendees++;
                 }
             }
