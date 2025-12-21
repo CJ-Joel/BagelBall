@@ -12,15 +12,27 @@ use Stripe\Checkout\Session as StripeSession;
 class RegistrationController extends Controller
 {
     // Show signup form
-    public function create(PreGame $pregame)
+    public function create(Request $request, PreGame $pregame)
     {
         \Log::info('CREATE: Session ID is ' . session()->getId());
         \Log::info('CREATE: CSRF Token is ' . csrf_token());
 
-        if ($pregame->isFull()) {
+        $override = $request->query('override') === 'true';
+        
+        if ($pregame->isFull() && !$override) {
             return redirect()->route('pregames.show', $pregame)->with('error', 'This pre-game is full.');
         }
-        return view('pregames.signup', compact('pregame'));
+        
+        if ($override) {
+            \Log::info('Override parameter used for pregame signup', [
+                'pregame_id' => $pregame->id,
+                'pregame_name' => $pregame->name,
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent()
+            ]);
+        }
+        
+        return view('pregames.signup', compact('pregame', 'override'));
     }
 
     // Validate Eventbrite order ID (AJAX endpoint)
@@ -213,9 +225,21 @@ class RegistrationController extends Controller
     // Handle signup submission
     public function store(Request $request, PreGame $pregame)
     {
-        if ($pregame->isFull()) {
+        $override = $request->input('override') === 'true';
+        
+        if ($pregame->isFull() && !$override) {
             return redirect()->route('pregames.signup', $pregame)->with('error', 'This pre-game is full.');
         }
+        
+        if ($override) {
+            \Log::info('Override parameter used for pregame registration', [
+                'pregame_id' => $pregame->id,
+                'pregame_name' => $pregame->name,
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent()
+            ]);
+        }
+        
         $data = $request->validate([
             'eventbrite_order_id' => 'required|string',
             'first_name' => 'required|string|max:255',
@@ -224,6 +248,7 @@ class RegistrationController extends Controller
             'has_friend' => 'boolean',
             'friend_name' => 'nullable|string|max:255',
             'friend_email' => 'nullable|email|max:255',
+            'override' => 'nullable|string|in:true',
         ]);
 
         // Validate the order ID hasn't been used

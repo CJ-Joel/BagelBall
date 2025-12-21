@@ -13,6 +13,12 @@
 
         <form method="POST" action="{{ route('pregames.signup.submit', $pregame, false) }}" class="space-y-4" id="signupForm">
             @csrf
+            @if(isset($override) && $override)
+                <input type="hidden" name="override" value="true">
+                <div class="bg-yellow-600 text-white p-4 rounded mb-4">
+                    <strong>Override Mode:</strong> You are registering with special access that bypasses capacity limits.
+                </div>
+            @endif
             <!-- Step 1: Eventbrite Order ID -->
             <div class="bg-gray-800 p-3 sm:p-4 rounded">
                 <label class="block mb-2 font-semibold text-sm sm:text-base">Eventbrite Order ID</label>
