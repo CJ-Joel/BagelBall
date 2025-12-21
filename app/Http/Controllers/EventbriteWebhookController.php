@@ -15,19 +15,11 @@ class EventbriteWebhookController extends Controller
     {
         $payload = $request->all();
         
-        // Log ALL webhook calls BEFORE processing
-        \Log::info('=== WEBHOOK REQUEST RECEIVED ===', [
+        // Minimal webhook receipt log (avoid logging PII/full payload)
+        Log::info('Eventbrite webhook received', [
             'method' => $request->method(),
             'path' => $request->path(),
-            'content_type' => $request->header('Content-Type'),
             'payload_keys' => array_keys($payload),
-            'full_payload' => $payload,
-        ]);
-
-        // Log all webhook calls for debugging - ALWAYS log
-        Log::info('Eventbrite webhook received - raw payload', [
-            'keys' => array_keys($payload),
-            'payload' => $payload
         ]);
 
         // Check if this is an order.placed webhook with api_url
@@ -161,8 +153,6 @@ class EventbriteWebhookController extends Controller
             }
             
             $attendeeData = $response->json();
-            // Debug: log full attendee API response to help diagnose status fields
-            Log::debug('Attendee API response', ['attendee' => $attendeeData]);
             $orderId = $attendeeData['order_id'] ?? null;
             
             if (!$orderId) {
@@ -266,25 +256,21 @@ class EventbriteWebhookController extends Controller
             }
 
             if ($barcodeUsed) {
-                Log::info('Eventbrite barcode reported as used (storeTickets)', [
-                    'eventbrite_ticket_id' => $eventbriteTicketId,
-                    'existing_ticket_id' => $existingTicket->id ?? null,
-                    'existing_redeemed_at' => $existingTicket->redeemed_at ?? null,
-                ]);
+                // Prefer Eventbrite-provided timestamp when available (e.g. barcodes[].changed or attendee.changed)
+                $redeemedAt = $this->extractRedeemedAt($attendee) ?? Carbon::now()->format('Y-m-d H:i:s');
+
                 if (! $existingTicket || is_null($existingTicket->redeemed_at)) {
-                    $updateData['redeemed_at'] = Carbon::now()->format('Y-m-d H:i:s');
-                    Log::info('Setting redeemed_at from Eventbrite webhook (storeTickets)', [
+                    $updateData['redeemed_at'] = $redeemedAt;
+                    Log::info('Setting redeemed_at from Eventbrite webhook', [
                         'eventbrite_ticket_id' => $eventbriteTicketId,
                         'redeemed_at' => $updateData['redeemed_at'],
                     ]);
                 } else {
-                    Log::info('Not overwriting existing redeemed_at (storeTickets)', [
+                    Log::info('Existing redeemed_at present; not overwriting', [
                         'eventbrite_ticket_id' => $eventbriteTicketId,
                         'existing_redeemed_at' => $existingTicket->redeemed_at,
                     ]);
                 }
-            } else {
-                Log::info('Eventbrite barcode not marked used (storeTickets)', ['eventbrite_ticket_id' => $eventbriteTicketId]);
             }
             
             // Check if ticket already exists to log if this is an update
@@ -300,9 +286,6 @@ class EventbriteWebhookController extends Controller
                 'ticket_id' => $eventbriteTicketId,
                 'order_id' => $orderId,
                 'is_update' => $isUpdate,
-                'first_name' => $updateData['first_name'],
-                'last_name' => $updateData['last_name'],
-                'email' => $updateData['email'],
                 'database_id' => $ticket->id,
             ]);
         }
@@ -348,6 +331,44 @@ class EventbriteWebhookController extends Controller
 
             foreach (['gender_raw', 'sex'] as $k) {
                 if (!empty($profile[$k])) return $profile[$k];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Try to extract a timestamp for when the ticket was redeemed/changed from Eventbrite payload.
+     * Returns formatted MySQL datetime string or null if none found.
+     */
+    private function extractRedeemedAt(array $attendee): ?string
+    {
+        $candidates = [];
+
+        // Check barcodes entries for common timestamp fields
+        if (!empty($attendee['barcodes']) && is_array($attendee['barcodes'])) {
+            foreach ($attendee['barcodes'] as $b) {
+                if (is_array($b)) {
+                    foreach (['changed','changed_at','scanned_at','used_at','modified','created'] as $k) {
+                        if (!empty($b[$k])) $candidates[] = $b[$k];
+                    }
+                }
+            }
+        }
+
+        // Top-level attendee fields that may contain timestamps
+        foreach (['changed','changed_at','modified','checked_in_at','checked_at','created'] as $k) {
+            if (!empty($attendee[$k])) $candidates[] = $attendee[$k];
+        }
+
+        // Try parsing candidates in order
+        foreach ($candidates as $val) {
+            if (!$val) continue;
+            try {
+                $dt = Carbon::parse($val);
+                return $dt->format('Y-m-d H:i:s');
+            } catch (\Exception $e) {
+                // ignore parse errors
             }
         }
 
@@ -712,29 +733,21 @@ class EventbriteWebhookController extends Controller
                     }
 
                     if ($barcodeUsed) {
-                        Log::info('Eventbrite barcode reported as used', [
-                            'eventbrite_ticket_id' => $eventbriteTicketId,
-                            'existing_ticket_id' => $existingTicket->id ?? null,
-                            'existing_redeemed_at' => $existingTicket->redeemed_at ?? null,
-                        ]);
+                        // Prefer Eventbrite-provided timestamp when available
+                        $redeemedAt = $this->extractRedeemedAt($attendee) ?? Carbon::now()->format('Y-m-d H:i:s');
 
-                        // Only set redeemed_at when the DB value is currently null
                         if (! $existingTicket || is_null($existingTicket->redeemed_at)) {
-                            $updateData['redeemed_at'] = Carbon::now()->format('Y-m-d H:i:s');
+                            $updateData['redeemed_at'] = $redeemedAt;
                             Log::info('Setting redeemed_at from Eventbrite webhook', [
                                 'eventbrite_ticket_id' => $eventbriteTicketId,
                                 'redeemed_at' => $updateData['redeemed_at'],
                             ]);
                         } else {
-                            Log::info('Not overwriting existing redeemed_at', [
+                            Log::info('Existing redeemed_at present; not overwriting', [
                                 'eventbrite_ticket_id' => $eventbriteTicketId,
                                 'existing_redeemed_at' => $existingTicket->redeemed_at,
                             ]);
                         }
-                    } else {
-                        Log::info('Eventbrite barcode not marked used', [
-                            'eventbrite_ticket_id' => $eventbriteTicketId,
-                        ]);
                     }
                     
                     EventbriteTicket::updateOrCreate(
