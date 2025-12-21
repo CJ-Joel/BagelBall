@@ -601,6 +601,33 @@ class EventbriteWebhookController extends Controller
                         'gender' => $this->extractGender($attendee),
                         'pregame_interest' => $this->extractPregameInterest($attendee),
                     ];
+
+                    // Detect barcode status: if Eventbrite reports a barcode with status 'used',
+                    // and the database record does not already have `redeemed_at`, set it to now().
+                    $barcodeUsed = false;
+                    if (!empty($attendee['barcodes']) && is_array($attendee['barcodes'])) {
+                        foreach ($attendee['barcodes'] as $b) {
+                            $status = $b['status'] ?? $b['barcode_status'] ?? null;
+                            if ($status && strtolower((string)$status) === 'used') {
+                                $barcodeUsed = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    // Also consider top-level checked_in flag if present
+                    if (! $barcodeUsed && isset($attendee['checked_in'])) {
+                        if ($attendee['checked_in'] === true || $attendee['checked_in'] === 'true') {
+                            $barcodeUsed = true;
+                        }
+                    }
+
+                    if ($barcodeUsed) {
+                        // Only set redeemed_at when the DB value is currently null
+                        if (! $existingTicket || is_null($existingTicket->redeemed_at)) {
+                            $updateData['redeemed_at'] = Carbon::now()->format('Y-m-d H:i:s');
+                        }
+                    }
                     
                     EventbriteTicket::updateOrCreate(
                         ['eventbrite_ticket_id' => $eventbriteTicketId],

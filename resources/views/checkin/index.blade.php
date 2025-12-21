@@ -659,7 +659,11 @@
           `;
 
           div.addEventListener('click', async () => {
-            await lookup(person.barcode_id);
+            // Some results may not have a `barcode_id`; prefer that, but
+            // fall back to `eventbrite_ticket_id` so lookup can find the
+            // ticket by either identifier.
+            const id = person.barcode_id || person.eventbrite_ticket_id || '';
+            await lookup(id);
             els.search.value = '';
             els.searchResults.innerHTML = '';
           });
