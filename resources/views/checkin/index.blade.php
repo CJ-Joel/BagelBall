@@ -91,7 +91,7 @@
                 <button id="tabScan" class="btn" style="padding:8px 12px">Scan</button>
                 <button id="tabSearch" class="btn" style="padding:8px 12px">Search</button>
               </div>
-              <div style="margin-left:auto" class="muted">Press refresh to toggle camera</div>
+              <div style="margin-left:auto"></div>
             </div>
             <div id="preview"></div>
             <div id="fullScreenScanner" style="display:none;position:fixed;inset:0;background:#000;z-index:10000;padding:12px;box-sizing:border-box">
@@ -107,7 +107,7 @@
             <div class="result-details" id="resultDetails"></div>
           </div>
 
-          <div class="kpis">
+          <div id="kpis" class="kpis">
             <div class="kpi">
               <div class="label">Status</div>
               <div id="status" class="value status">Ready</div>
@@ -119,7 +119,7 @@
           </div>
         </div>
 
-        <div class="card" style="margin-top:12px">
+        <div id="searchCard" class="card" style="margin-top:12px">
           <div id="searchCardHeader" style="font-weight:800;margin-bottom:8px">Search by name</div>
           <input id="search" placeholder="First or last name" autocomplete="off" inputmode="text" />
           <div id="searchResults" style="margin-top:8px; max-height:300px; overflow-y:auto;"></div>
@@ -278,16 +278,27 @@
     const fullScreenScanner = document.getElementById('fullScreenScanner');
     const closeFullScanner = document.getElementById('closeFullScanner');
     const fullPreview = document.getElementById('fullPreview');
+    const searchCardEl = document.getElementById('searchCard');
+    const kpisEl = document.getElementById('kpis');
 
     function setMode(m) {
       state.mode = m;
       tabScan.style.opacity = (m === 'scan') ? '1' : '0.6';
       tabSearch.style.opacity = (m === 'search') ? '1' : '0.6';
       if (m === 'scan') {
+        // move search card back below KPIs
+        if (kpisEl && searchCardEl) {
+          const parent = kpisEl.parentNode;
+          if (kpisEl.nextSibling) parent.insertBefore(searchCardEl, kpisEl.nextSibling);
+          else parent.appendChild(searchCardEl);
+        }
         // show camera preview area
         if (!serverReadOnly && !state.uiReadOnly) startScanner();
       } else {
-        // search mode: hide camera preview to maximize results space
+        // search mode: move search card above KPIs and hide camera preview to maximize results space
+        if (kpisEl && searchCardEl && kpisEl.parentNode) {
+          kpisEl.parentNode.insertBefore(searchCardEl, kpisEl);
+        }
         stopScanner();
       }
     }
