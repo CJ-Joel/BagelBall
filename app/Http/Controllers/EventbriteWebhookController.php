@@ -602,23 +602,60 @@ class EventbriteWebhookController extends Controller
                         'pregame_interest' => $this->extractPregameInterest($attendee),
                     ];
 
-                    // Detect barcode status: if Eventbrite reports a barcode with status 'used',
-                    // and the database record does not already have `redeemed_at`, set it to now().
+                    // Detect barcode/attendee status indicating the ticket has been used.
+                    // Eventbrite payloads vary; check several possible places and status names.
                     $barcodeUsed = false;
+                    $truthyStatuses = ['used','scanned','redeemed','consumed','checked_in','checked-in','checkedin'];
+
+                    // Check barcodes array entries for any status-like fields
                     if (!empty($attendee['barcodes']) && is_array($attendee['barcodes'])) {
                         foreach ($attendee['barcodes'] as $b) {
-                            $status = $b['status'] ?? $b['barcode_status'] ?? null;
-                            if ($status && strtolower((string)$status) === 'used') {
+                            // common keys that might contain usage info
+                            $candidates = [];
+                            if (is_array($b)) {
+                                $candidates = array_values($b);
+                            } else {
+                                $candidates = [$b];
+                            }
+                            foreach ($candidates as $val) {
+                                if (!is_scalar($val)) continue;
+                                $s = strtolower((string)$val);
+                                foreach ($truthyStatuses as $tok) {
+                                    if (strpos($s, $tok) !== false) {
+                                        $barcodeUsed = true;
+                                        break 3; // exit all loops
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Check common top-level attendee flags/fields
+                    if (! $barcodeUsed) {
+                        if (!empty($attendee['checked_in']) && ($attendee['checked_in'] === true || strtolower((string)$attendee['checked_in']) === 'true')) {
+                            $barcodeUsed = true;
+                        }
+                    }
+                    if (! $barcodeUsed && !empty($attendee['status'])) {
+                        $s = strtolower((string)$attendee['status']);
+                        foreach ($truthyStatuses as $tok) {
+                            if (strpos($s, $tok) !== false) {
                                 $barcodeUsed = true;
                                 break;
                             }
                         }
                     }
-
-                    // Also consider top-level checked_in flag if present
-                    if (! $barcodeUsed && isset($attendee['checked_in'])) {
-                        if ($attendee['checked_in'] === true || $attendee['checked_in'] === 'true') {
-                            $barcodeUsed = true;
+                    // Some payloads might include a single `barcode` or `code` object/string
+                    if (! $barcodeUsed) {
+                        $single = $attendee['barcode'] ?? $attendee['code'] ?? null;
+                        if ($single && is_array($single)) {
+                            foreach ($single as $v) {
+                                if (!is_scalar($v)) continue;
+                                $s = strtolower((string)$v);
+                                foreach ($truthyStatuses as $tok) {
+                                    if (strpos($s, $tok) !== false) { $barcodeUsed = true; break 2; }
+                                }
+                            }
                         }
                     }
 
