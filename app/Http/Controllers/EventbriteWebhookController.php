@@ -623,10 +623,29 @@ class EventbriteWebhookController extends Controller
                     }
 
                     if ($barcodeUsed) {
+                        Log::info('Eventbrite barcode reported as used', [
+                            'eventbrite_ticket_id' => $eventbriteTicketId,
+                            'existing_ticket_id' => $existingTicket->id ?? null,
+                            'existing_redeemed_at' => $existingTicket->redeemed_at ?? null,
+                        ]);
+
                         // Only set redeemed_at when the DB value is currently null
                         if (! $existingTicket || is_null($existingTicket->redeemed_at)) {
                             $updateData['redeemed_at'] = Carbon::now()->format('Y-m-d H:i:s');
+                            Log::info('Setting redeemed_at from Eventbrite webhook', [
+                                'eventbrite_ticket_id' => $eventbriteTicketId,
+                                'redeemed_at' => $updateData['redeemed_at'],
+                            ]);
+                        } else {
+                            Log::info('Not overwriting existing redeemed_at', [
+                                'eventbrite_ticket_id' => $eventbriteTicketId,
+                                'existing_redeemed_at' => $existingTicket->redeemed_at,
+                            ]);
                         }
+                    } else {
+                        Log::info('Eventbrite barcode not marked used', [
+                            'eventbrite_ticket_id' => $eventbriteTicketId,
+                        ]);
                     }
                     
                     EventbriteTicket::updateOrCreate(
