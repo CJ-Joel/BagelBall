@@ -227,51 +227,49 @@ class EventbriteWebhookController extends Controller
                 'barcode_id' => $this->extractBarcodeId($attendee),
                 'gender' => $this->extractGender($attendee),
             ];
-            // Detect used/checked-in status and set redeemed_at when appropriate.
+            // Only set redeemed_at if we find specific evidence of barcode scanning/usage
             $existingTicket = EventbriteTicket::where('eventbrite_ticket_id', $eventbriteTicketId)->first();
             $barcodeUsed = false;
             $setRedeemed = false;
-            $truthyStatuses = ['used','scanned','redeemed','consumed','checked_in','checked-in','checkedin'];
 
+            // Check barcodes array for explicit 'used' status
             if (!empty($attendee['barcodes']) && is_array($attendee['barcodes'])) {
-                foreach ($attendee['barcodes'] as $b) {
-                    $candidates = is_array($b) ? array_values($b) : [$b];
-                    foreach ($candidates as $val) {
-                        if (!is_scalar($val)) continue;
-                        $s = strtolower((string)$val);
-                        foreach ($truthyStatuses as $tok) {
-                            if (strpos($s, $tok) !== false) { $barcodeUsed = true; break 3; }
+                foreach ($attendee['barcodes'] as $barcode) {
+                    if (is_array($barcode) && isset($barcode['status'])) {
+                        $status = strtolower(trim($barcode['status']));
+                        if ($status === 'used') {
+                            $barcodeUsed = true;
+                            break;
                         }
                     }
                 }
             }
-            if (! $barcodeUsed) {
-                if (!empty($attendee['checked_in']) && ($attendee['checked_in'] === true || strtolower((string)$attendee['checked_in']) === 'true')) {
-                    $barcodeUsed = true;
-                }
-            }
-            if (! $barcodeUsed && !empty($attendee['status'])) {
-                $s = strtolower((string)$attendee['status']);
-                foreach ($truthyStatuses as $tok) {
-                    if (strpos($s, $tok) !== false) { $barcodeUsed = true; break; }
-                }
+
+            // Only check checked_in if barcodes don't have explicit status
+            if (!$barcodeUsed && !empty($attendee['checked_in']) && ($attendee['checked_in'] === true || strtolower((string)$attendee['checked_in']) === 'true')) {
+                $barcodeUsed = true;
             }
 
             if ($barcodeUsed) {
-                // Prefer Eventbrite-provided timestamp when available (e.g. barcodes[].changed or attendee.changed)
-                $redeemedAt = $this->extractRedeemedAt($attendee) ?? Carbon::now()->format('Y-m-d H:i:s');
+                // Only use actual timestamp from Eventbrite, don't fallback to current time
+                $redeemedAt = $this->extractRedeemedAt($attendee);
 
-                if (! $existingTicket || is_null($existingTicket->redeemed_at)) {
+                if ($redeemedAt && (!$existingTicket || is_null($existingTicket->redeemed_at))) {
                     $updateData['redeemed_at'] = $redeemedAt;
                     $setRedeemed = true;
                     Log::info('Setting redeemed_at from Eventbrite webhook', [
                         'eventbrite_ticket_id' => $eventbriteTicketId,
                         'redeemed_at' => $updateData['redeemed_at'],
+                        'source' => 'eventbrite_timestamp',
                     ]);
-                } else {
+                } else if ($redeemedAt) {
                     Log::info('Existing redeemed_at present; not overwriting', [
                         'eventbrite_ticket_id' => $eventbriteTicketId,
                         'existing_redeemed_at' => $existingTicket->redeemed_at,
+                    ]);
+                } else {
+                    Log::info('Barcode marked as used but no timestamp available from Eventbrite', [
+                        'eventbrite_ticket_id' => $eventbriteTicketId,
                     ]);
                 }
             }
@@ -695,79 +693,48 @@ class EventbriteWebhookController extends Controller
                         'pregame_interest' => $this->extractPregameInterest($attendee),
                     ];
 
-                    // Detect barcode/attendee status indicating the ticket has been used.
-                    // Eventbrite payloads vary; check several possible places and status names.
+                    // Only set redeemed_at if we find specific evidence of barcode scanning/usage
                     $barcodeUsed = false;
                     $setRedeemed = false;
-                    $truthyStatuses = ['used','scanned','redeemed','consumed','checked_in','checked-in','checkedin'];
 
-                    // Check barcodes array entries for any status-like fields
+                    // Check barcodes array for explicit 'used' status
                     if (!empty($attendee['barcodes']) && is_array($attendee['barcodes'])) {
-                        foreach ($attendee['barcodes'] as $b) {
-                            // common keys that might contain usage info
-                            $candidates = [];
-                            if (is_array($b)) {
-                                $candidates = array_values($b);
-                            } else {
-                                $candidates = [$b];
-                            }
-                            foreach ($candidates as $val) {
-                                if (!is_scalar($val)) continue;
-                                $s = strtolower((string)$val);
-                                foreach ($truthyStatuses as $tok) {
-                                    if (strpos($s, $tok) !== false) {
-                                        $barcodeUsed = true;
-                                        break 3; // exit all loops
-                                    }
+                        foreach ($attendee['barcodes'] as $barcode) {
+                            if (is_array($barcode) && isset($barcode['status'])) {
+                                $status = strtolower(trim($barcode['status']));
+                                if ($status === 'used') {
+                                    $barcodeUsed = true;
+                                    break;
                                 }
                             }
                         }
                     }
 
-                    // Check common top-level attendee flags/fields
-                    if (! $barcodeUsed) {
-                        if (!empty($attendee['checked_in']) && ($attendee['checked_in'] === true || strtolower((string)$attendee['checked_in']) === 'true')) {
-                            $barcodeUsed = true;
-                        }
-                    }
-                    if (! $barcodeUsed && !empty($attendee['status'])) {
-                        $s = strtolower((string)$attendee['status']);
-                        foreach ($truthyStatuses as $tok) {
-                            if (strpos($s, $tok) !== false) {
-                                $barcodeUsed = true;
-                                break;
-                            }
-                        }
-                    }
-                    // Some payloads might include a single `barcode` or `code` object/string
-                    if (! $barcodeUsed) {
-                        $single = $attendee['barcode'] ?? $attendee['code'] ?? null;
-                        if ($single && is_array($single)) {
-                            foreach ($single as $v) {
-                                if (!is_scalar($v)) continue;
-                                $s = strtolower((string)$v);
-                                foreach ($truthyStatuses as $tok) {
-                                    if (strpos($s, $tok) !== false) { $barcodeUsed = true; break 2; }
-                                }
-                            }
-                        }
+                    // Only check checked_in if barcodes don't have explicit status
+                    if (!$barcodeUsed && !empty($attendee['checked_in']) && ($attendee['checked_in'] === true || strtolower((string)$attendee['checked_in']) === 'true')) {
+                        $barcodeUsed = true;
                     }
 
                     if ($barcodeUsed) {
-                        // Prefer Eventbrite-provided timestamp when available
-                        $redeemedAt = $this->extractRedeemedAt($attendee) ?? Carbon::now()->format('Y-m-d H:i:s');
+                        // Only use actual timestamp from Eventbrite, don't fallback to current time
+                        $redeemedAt = $this->extractRedeemedAt($attendee);
 
-                        if (! $existingTicket || is_null($existingTicket->redeemed_at)) {
+                        if ($redeemedAt && (!$existingTicket || is_null($existingTicket->redeemed_at))) {
                             $updateData['redeemed_at'] = $redeemedAt;
                             $setRedeemed = true;
-                            Log::info('Setting redeemed_at from Eventbrite webhook', [
+                            Log::info('Setting redeemed_at from Eventbrite sync', [
                                 'eventbrite_ticket_id' => $eventbriteTicketId,
                                 'redeemed_at' => $updateData['redeemed_at'],
+                                'source' => 'eventbrite_timestamp',
                             ]);
-                        } else {
+                        } else if ($redeemedAt) {
                             Log::info('Existing redeemed_at present; not overwriting', [
                                 'eventbrite_ticket_id' => $eventbriteTicketId,
                                 'existing_redeemed_at' => $existingTicket->redeemed_at,
+                            ]);
+                        } else {
+                            Log::info('Barcode marked as used but no timestamp available from Eventbrite', [
+                                'eventbrite_ticket_id' => $eventbriteTicketId,
                             ]);
                         }
                     }
