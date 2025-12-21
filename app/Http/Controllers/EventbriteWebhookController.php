@@ -161,6 +161,8 @@ class EventbriteWebhookController extends Controller
             }
             
             $attendeeData = $response->json();
+            // Debug: log full attendee API response to help diagnose status fields
+            Log::debug('Attendee API response', ['attendee' => $attendeeData]);
             $orderId = $attendeeData['order_id'] ?? null;
             
             if (!$orderId) {
