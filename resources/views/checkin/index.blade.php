@@ -85,8 +85,21 @@
 
     <div class="row">
       <div class="left">
-        <div class="card">
-          <div id="preview"></div>
+          <div class="card">
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+              <div id="modeTabs" style="display:flex;gap:8px">
+                <button id="tabScan" class="btn" style="padding:8px 12px">Scan</button>
+                <button id="tabSearch" class="btn" style="padding:8px 12px">Search</button>
+              </div>
+              <div style="margin-left:auto" class="muted">Press refresh to toggle camera</div>
+            </div>
+            <div id="preview"></div>
+            <div id="fullScreenScanner" style="display:none;position:fixed;inset:0;background:#000;z-index:10000;padding:12px;box-sizing:border-box">
+              <button id="closeFullScanner" class="btn" style="position:absolute;top:12px;right:12px;z-index:10001">Close</button>
+              <div id="fullPreview" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;">
+                <!-- video will be attached here when full-screen -->
+              </div>
+            </div>
 
           <div class="card result-card" id="resultCard" style="display:none;">
             <div class="result-name" id="resultName"></div>
@@ -107,7 +120,7 @@
         </div>
 
         <div class="card" style="margin-top:12px">
-          <div style="font-weight:800;margin-bottom:8px">Search by name</div>
+          <div id="searchCardHeader" style="font-weight:800;margin-bottom:8px">Search by name</div>
           <input id="search" placeholder="First or last name" autocomplete="off" inputmode="text" />
           <div id="searchResults" style="margin-top:8px; max-height:300px; overflow-y:auto;"></div>
         </div>
@@ -154,6 +167,9 @@
       searchReqId: 0,
       // UI-level read-only flag (stored in localStorage)
       uiReadOnly: (localStorage.getItem('checkin_ui_readonly') === '1'),
+      // UI mode: 'scan' or 'search'
+      mode: 'scan',
+      fullScreen: false,
     };
 
     function setStatus(text, kind) {
@@ -255,6 +271,51 @@
 
       els.log.prepend(div);
     }
+
+    // Mode handling (scan vs search)
+    const tabScan = document.getElementById('tabScan');
+    const tabSearch = document.getElementById('tabSearch');
+    const fullScreenScanner = document.getElementById('fullScreenScanner');
+    const closeFullScanner = document.getElementById('closeFullScanner');
+    const fullPreview = document.getElementById('fullPreview');
+
+    function setMode(m) {
+      state.mode = m;
+      tabScan.style.opacity = (m === 'scan') ? '1' : '0.6';
+      tabSearch.style.opacity = (m === 'search') ? '1' : '0.6';
+      if (m === 'scan') {
+        // show camera preview area
+        if (!serverReadOnly && !state.uiReadOnly) startScanner();
+      } else {
+        // search mode: hide camera preview to maximize results space
+        stopScanner();
+      }
+    }
+
+    tabScan.addEventListener('click', () => {
+      if (serverReadOnly) return; // prevent enabling scan in server read-only
+      setMode('scan');
+    });
+    tabSearch.addEventListener('click', () => setMode('search'));
+
+    // Full-screen scanner open/close
+    function openFullScanner() {
+      fullScreenScanner.style.display = 'block';
+      // Start scanner in the fullPreview container
+      stopScanner();
+      startScanner(fullPreview);
+      state.fullScreen = true;
+    }
+    function closeFullScannerFn() {
+      // stop scanner attached to full preview and hide overlay
+      stopScanner();
+      fullPreview.innerHTML = '';
+      fullScreenScanner.style.display = 'none';
+      state.fullScreen = false;
+      // restore mode-based camera
+      if (state.mode === 'scan' && !serverReadOnly && !state.uiReadOnly) startScanner();
+    }
+    closeFullScanner.addEventListener('click', closeFullScannerFn);
 
     // Read-only toggle handling
     const toggleBtn = document.getElementById('toggleReadOnlyBtn');
@@ -424,7 +485,7 @@
       setStatus(serverReadOnly || state.uiReadOnly ? 'Read-only mode (camera off)' : 'Ready', serverReadOnly || state.uiReadOnly ? 'bad' : null);
     }
 
-    async function startScanner() {
+    async function startScanner(containerEl) {
       if (typeof jsQR === 'undefined') {
         console.error('jsQR library not loaded');
         setStatus('Scanner not loaded', 'bad');
@@ -450,7 +511,7 @@
         video.play();
 
         // Create a container to hold the video
-        const container = els.preview;
+        const container = (containerEl && containerEl.appendChild) ? containerEl : els.preview;
         container.innerHTML = '';
         container.appendChild(video);
 
@@ -508,10 +569,12 @@
     }
 
     // Start scanner unless read-only
-    if (!serverReadOnly && !state.uiReadOnly) {
-      startScanner();
-    } else if (serverReadOnly || state.uiReadOnly) {
+    // Initialize mode: if server read-only, default to search; otherwise default to scan.
+    if (serverReadOnly || state.uiReadOnly) {
+      setMode('search');
       setStatus('Read-only mode (camera disabled)', 'bad');
+    } else {
+      setMode('scan');
     }
 
     // Search functionality
@@ -605,6 +668,25 @@
       state.searchReqId += 1;
       const myId = state.searchReqId;
       debouncedSearch(query, myId);
+    });
+
+    // Collapse camera preview when search input focused (mobile keyboard)
+    els.search.addEventListener('focus', () => {
+      if (!state.fullScreen) {
+        els.preview.classList.add('camera-collapsed');
+        // stop scanner to free camera and maximize results visibility
+        stopScanner();
+      }
+    });
+    els.search.addEventListener('blur', () => {
+      els.preview.classList.remove('camera-collapsed');
+      // restore camera if in scan mode
+      if (state.mode === 'scan' && !serverReadOnly && !state.uiReadOnly && !state.fullScreen) startScanner();
+    });
+
+    // Floating action: open full-screen scanner when tapping the preview
+    els.preview.addEventListener('click', () => {
+      if (state.mode === 'scan' && !serverReadOnly && !state.uiReadOnly) openFullScanner();
     });
   </script>
 </body>
