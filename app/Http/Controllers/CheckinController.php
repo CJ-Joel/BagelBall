@@ -85,6 +85,16 @@ class CheckinController extends Controller
         $name = trim((string) ($ticket->first_name . ' ' . $ticket->last_name));
         $name = $name !== '' ? $name : ($ticket->email ?? 'Unknown');
 
+        // A registration record linked to this ticket means the guest gets a drink.
+        // Some code paths store the local tickets.id in registrations.eventbrite_ticket_id,
+        // others may store the external Eventbrite ticket id. Check both to be safe.
+        $drinkEligible = Registration::query()
+            ->where(function ($q) use ($ticket) {
+                $q->where('eventbrite_ticket_id', $ticket->id)
+                  ->orWhere('eventbrite_ticket_id', $ticket->eventbrite_ticket_id);
+            })
+            ->exists();
+
         $alreadyRedeemed = $ticket->isRedeemed();
         if (!$alreadyRedeemed) {
             $ticket->redeemed_at = now();
@@ -113,6 +123,7 @@ class CheckinController extends Controller
             'ticket_id' => $ticket->eventbrite_ticket_id,
             'barcode_id' => $ticket->barcode_id,
             'redeemed_at' => optional($ticket->redeemed_at)->toIso8601String(),
+            'drink_eligible' => $drinkEligible,
             ]);
     }
 

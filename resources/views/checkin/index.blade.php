@@ -37,6 +37,7 @@
     .pill.ok{border-color:rgba(34,197,94,.45);color:var(--ok)}
     .pill.warn{border-color:rgba(245,158,11,.45);color:var(--warn)}
     .pill.bad{border-color:rgba(239,68,68,.45);color:var(--bad)}
+    .pill.drink-pill{border-color:rgba(34,197,94,.55);color:#0b1220;background:linear-gradient(135deg,#22c55e 0%,#a3e635 100%);}
     input{width:100%;padding:12px;border-radius:12px;border:1px solid var(--line);background:#0b1220;color:#e5e7eb;font-size:16px;box-sizing:border-box}
     .search-result { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; margin-top: 8px; cursor: pointer; background: #0b1220; transition: all 0.2s; }
     .search-result:hover { background: #111827; border-color: #3f4651; }
@@ -62,6 +63,11 @@
     .result-details.ok { color: var(--ok); }
     .result-details.warn { color: var(--warn); }
     .result-details.bad { color: var(--bad); }
+    .drink-badge { display: none; align-items: center; gap: 10px; background: linear-gradient(135deg, #0ea5e9 0%, #22c55e 100%); color: #0b1220; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); margin-top: 10px; box-sizing: border-box; width: 100%; }
+    .drink-icon { width: 34px; height: 34px; background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none"><path fill="%23facc15" d="M16 6h32v6L36 32v16h-8V32L16 12z"/><path fill="%23fbbf24" d="M20 12h24l-8 16H28z"/><path fill="%2322c55e" d="M24 48h16v6a8 8 0 0 1-16 0z"/><path fill="%230ea5e9" d="M26 6h12v4H26z"/><circle cx="24" cy="20" r="3" fill="%23f59e0b"/><circle cx="40" cy="22" r="3" fill="%23f59e0b"/></svg>'); background-size: contain; background-repeat: no-repeat; background-position: center; flex-shrink: 0; }
+    .drink-text { display: flex; flex-direction: column; }
+    .drink-text .title { font-weight: 800; font-size: 15px; }
+    .drink-text .note { font-size: 13px; color: rgba(11,18,32,0.7); }
   </style>
 </head>
 <body>
@@ -105,6 +111,13 @@
             <div class="result-name" id="resultName"></div>
             <div class="result-meta" id="resultMeta"></div>
             <div class="result-details" id="resultDetails"></div>
+            <div class="drink-badge" id="drinkBadge">
+              <div class="drink-icon" aria-hidden="true"></div>
+              <div class="drink-text">
+                <div class="title">Drink eligible</div>
+                <div class="note">Pregame registration found</div>
+              </div>
+            </div>
           </div>
 
           <div id="kpis" class="kpis">
@@ -153,6 +166,7 @@
       resultName: document.getElementById('resultName'),
       resultMeta: document.getElementById('resultMeta'),
       resultDetails: document.getElementById('resultDetails'),
+      drinkBadge: document.getElementById('drinkBadge'),
       search: document.getElementById('search'),
       searchResults: document.getElementById('searchResults'),
     };
@@ -179,18 +193,8 @@
     }
 
     function beep(ok) {
-      try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const o = ctx.createOscillator();
-        const g = ctx.createGain();
-        o.type = 'sine';
-        o.frequency.value = ok ? 880 : 220;
-        g.gain.value = 0.03;
-        o.connect(g); g.connect(ctx.destination);
-        o.start();
-        setTimeout(() => { o.stop(); ctx.close(); }, 90);
-      } catch (e) {}
-      if (navigator.vibrate) navigator.vibrate(ok ? 35 : [20, 30, 20]);
+      // Sound/vibration disabled by request; keep function for call sites.
+      return;
     }
 
     function flashScanDetected() {
@@ -207,15 +211,17 @@
       overlay.classList.add(className);
     }
 
-    function addLogItem({name, status, barcode}) {
+    function addLogItem({name, status, barcode, drinkEligible}) {
       const div = document.createElement('div');
       div.className = 'log-item';
 
       const pillKind = status === 'redeemed' ? 'ok' : (status === 'already_redeemed' ? 'warn' : 'bad');
       const pillText = status === 'redeemed' ? 'Checked in' : (status === 'already_redeemed' ? 'Already' : status);
 
+      const drinkHtml = drinkEligible ? ' <span class="pill drink-pill" title="Drink eligible">🍹 Drink</span>' : '';
+
       div.innerHTML = `
-        <div class="log-name">${escapeHtml(name)} <span class="pill ${pillKind}">${escapeHtml(pillText)}</span></div>
+        <div class="log-name">${escapeHtml(name)} <span class="pill ${pillKind}">${escapeHtml(pillText)}</span>${drinkHtml}</div>
         <div class="log-meta">${new Date().toLocaleTimeString()} · ${escapeHtml(barcode || '')}</div>
       `;
 
@@ -416,7 +422,8 @@
       if (!data.ok) {
         setStatus('Not found', 'bad');
         els.lastName.textContent = '—';
-        addLogItem({ name: 'Not found', status: data.status || 'not_found', barcode });
+        els.drinkBadge.style.display = 'none';
+        addLogItem({ name: 'Not found', status: data.status || 'not_found', barcode, drinkEligible: false });
         beep(false);
         flashScreen(false);
         els.resultCard.style.display = 'none';
@@ -434,7 +441,7 @@
       }
       
       state.scannedCount += 1;
-      addLogItem({ name: data.name || 'Unknown', status: data.status, barcode });
+      addLogItem({ name: data.name || 'Unknown', status: data.status, barcode, drinkEligible: !!data.drink_eligible });
       beep(good);
       
       // Flash green for new check-in, red for already used
@@ -453,6 +460,11 @@
       els.resultDetails.textContent = data.ticket_type || '';
       els.resultDetails.className = 'result-details';
        els.resultCard.style.display = 'flex';
+       if (data.drink_eligible) {
+         els.drinkBadge.style.display = 'flex';
+       } else {
+         els.drinkBadge.style.display = 'none';
+       }
        // Clear existing hide timer
        if (state.resultHideTimer) {
          clearTimeout(state.resultHideTimer);

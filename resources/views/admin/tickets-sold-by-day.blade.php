@@ -149,8 +149,8 @@
         @if($enableNightOfOpsTab)
         <!-- Tabs -->
         <div class="tabs">
-            <button class="tab-btn active" onclick="switchTab('dashboard')">Dashboard</button>
-            <button class="tab-btn" onclick="switchTab('operations')">Night of Operations</button>
+            <button class="tab-btn active" onclick="switchTab('operations')">Night of Operations</button>
+            <button class="tab-btn" onclick="switchTab('dashboard')">Dashboard</button>
         </div>
         @endif
 
@@ -204,7 +204,7 @@
 
         @if($enableNightOfOpsTab)
         <!-- Night of Operations Tab -->
-        <div id="tab-operations" class="tab-content">
+        <div id="tab-operations" class="tab-content active">
             <h2 style="margin-top:0; color:#333;">Night of Operations</h2>
             
             <!-- Raw Numbers with Progress Circles -->
@@ -302,7 +302,7 @@
             <div class="divider"></div>
 
             <!-- Gender Breakdown of Scanned Tickets -->
-            <div style="display:flex; gap:24px; align-items:flex-start;">
+            <div style="display:flex; gap:24px; align-items:flex-start; flex-wrap:wrap;">
                 <div style="width:280px; padding:16px; border:1px solid #e5e7eb; border-radius:8px; background:#fafafa; display:flex; flex-direction:column; align-items:center;">
                     <div style="font-size:14px; color:#6b7280; margin-bottom:12px;">Gender of Admitted Attendees</div>
                     <div style="width:180px; height:180px; display:flex; align-items:center; justify-content:center;">
@@ -314,6 +314,27 @@
                         <div><span style="display:inline-block;width:10px;height:10px;background:#9ca3af;border-radius:2px;margin-right:4px;"></span>Unknown: <strong>{{ $scannedGenderCounts['unknown'] }}</strong></div>
                     </div>
                 </div>
+                <div class="stat-card stat-card-with-circle" style="min-width:280px; flex:1 1 280px;">
+                    <div class="progress-circle">
+                        <svg viewBox="0 0 100 100">
+                            <circle class="bg" cx="50" cy="50" r="42"></circle>
+                            <circle class="progress" cx="50" cy="50" r="42" 
+                                stroke="#0ea5e9" 
+                                stroke-dasharray="264" 
+                                stroke-dashoffset="{{ 264 - (264 * $pregameCheckedPct / 100) }}"></circle>
+                        </svg>
+                        <div class="percent-text" style="color:#0284c7;">{{ $pregameCheckedPct }}%</div>
+                    </div>
+                    <div class="stat-info">
+                        <div class="stat-label">Pregame Attendees Checked In</div>
+                        <div class="stat-value">{{ $pregameTicketsChecked }} / {{ $pregameTicketsTotal }}</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="stat-card" style="margin-top:16px; max-width:320px;">
+                <div class="stat-label">Estimated Bar Tab</div>
+                <div class="stat-value" style="font-size:28px;">${{ number_format($estimatedBarTab, 2) }}</div>
             </div>
         </div><!-- end tab-operations -->
         @endif
@@ -419,8 +440,9 @@
                 document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
                 
                 // Show selected tab
-                document.getElementById('tab-' + tabName).classList.add('active');
-                event.target.classList.add('active');
+                const tabEl = document.getElementById('tab-' + tabName);
+                if (tabEl) tabEl.classList.add('active');
+                if (event && event.target) event.target.classList.add('active');
 
                 // Initialize scans chart when operations tab is shown (lazy load)
                 if (tabName === 'operations' && !window.scansChartInitialized) {
@@ -429,6 +451,15 @@
                     window.scansChartInitialized = true;
                 }
             }
+
+            // Initialize Night of Operations charts on first load since it's the default tab
+            document.addEventListener('DOMContentLoaded', () => {
+                if (!window.scansChartInitialized) {
+                    initScansChart();
+                    initScannedGenderPie();
+                    window.scansChartInitialized = true;
+                }
+            });
 
             // Scans by 15-min interval bar chart
             function initScansChart() {

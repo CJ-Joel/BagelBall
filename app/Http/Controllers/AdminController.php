@@ -171,21 +171,38 @@ class AdminController extends Controller
         $ticketsAdmitted = EventbriteTicket::whereNotNull('redeemed_at')->count();
         $ticketsOutstanding = $ticketsSold - $ticketsAdmitted;
 
-        // Scans before/after 10:05 PM (using redeemed_at time portion)
-        // We check if the TIME part of redeemed_at is before or after 22:05:00
+        // Pregame attendees (tickets assigned to a pregame) and how many are checked in
+        $pregameTicketsTotal = EventbriteTicket::whereNotNull('pregame_id')->count();
+        $pregameTicketsChecked = EventbriteTicket::whereNotNull('pregame_id')->whereNotNull('redeemed_at')->count();
+        $pregameCheckedPct = $pregameTicketsTotal > 0 ? round(($pregameTicketsChecked / $pregameTicketsTotal) * 100) : 0;
+
+        // Use Eastern time when bucketing/thresholding scan times. If the database lacks timezone tables,
+        // CONVERT_TZ returns NULL; fall back to a fixed -5 hour offset so we don't drop data.
+        $localRedeemed = "COALESCE(CONVERT_TZ(redeemed_at, 'UTC', 'America/New_York'), DATE_SUB(redeemed_at, INTERVAL 5 HOUR))";
+
+        // Scans before/after 10:05 PM Eastern
         $scansBefore1005 = EventbriteTicket::whereNotNull('redeemed_at')
-            ->whereRaw("TIME(redeemed_at) < '22:05:00'")
+            ->whereRaw("TIME($localRedeemed) < '22:05:00'")
             ->count();
         $scansAfter1005 = EventbriteTicket::whereNotNull('redeemed_at')
-            ->whereRaw("TIME(redeemed_at) >= '22:05:00'")
+            ->whereRaw("TIME($localRedeemed) >= '22:05:00'")
             ->count();
+
+        // Pregame attendees checked in at or after 10:05 PM Eastern
+        $pregameAfter1005 = EventbriteTicket::whereNotNull('redeemed_at')
+            ->whereNotNull('pregame_id')
+            ->whereRaw("TIME($localRedeemed) >= '22:05:00'")
+            ->count();
+
+        // Estimated bar tab: (# before 10:05) + (# after 10:05 & pregame) * 14.52
+        $estimatedBarTab = $scansBefore1005 + ($pregameAfter1005 * 14.52);
 
         // Bar chart: scans by 15-min increment over a 5-hour window (e.g., 7 PM to midnight = 20 intervals)
         // We'll bucket by the TIME portion of redeemed_at into 15-min slots
         $scansByInterval = EventbriteTicket::selectRaw(
             "CONCAT(
-                LPAD(HOUR(redeemed_at), 2, '0'), ':',
-                LPAD(FLOOR(MINUTE(redeemed_at) / 15) * 15, 2, '0')
+                LPAD(HOUR($localRedeemed), 2, '0'), ':',
+                LPAD(FLOOR(MINUTE($localRedeemed) / 15) * 15, 2, '0')
             ) as time_slot,
             COUNT(*) as count"
         )
@@ -234,8 +251,13 @@ class AdminController extends Controller
             'ticketsSold' => $ticketsSold,
             'ticketsAdmitted' => $ticketsAdmitted,
             'ticketsOutstanding' => $ticketsOutstanding,
+            'pregameTicketsTotal' => $pregameTicketsTotal,
+            'pregameTicketsChecked' => $pregameTicketsChecked,
+            'pregameCheckedPct' => $pregameCheckedPct,
             'scansBefore1005' => $scansBefore1005,
             'scansAfter1005' => $scansAfter1005,
+            'pregameAfter1005' => $pregameAfter1005,
+            'estimatedBarTab' => $estimatedBarTab,
             'intervalLabels' => $intervalLabels,
             'intervalCounts' => $intervalCounts,
             'scannedGenderCounts' => $scannedGenderCounts,
