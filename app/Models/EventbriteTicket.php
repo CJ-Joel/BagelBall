@@ -10,6 +10,7 @@ class EventbriteTicket extends Model
         'pregame_id',
         'eventbrite_ticket_id',
         'eventbrite_order_id',
+        'ticket_type',
         'first_name',
         'last_name',
         'email',

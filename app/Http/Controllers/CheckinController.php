@@ -41,6 +41,7 @@ class CheckinController extends Controller
             return response()->json(['ok' => false, 'status' => 'read_only', 'message' => 'Check-in is read-only'], 423);
         }
         $barcode = trim((string) $request->input('barcode'));
+        $proceedEarlyBird = $request->boolean('proceed_early_bird', false);
         if (config('app.debug')) {
             Log::debug('checkin.scan received', ['barcode' => $barcode, 'ip' => $request->ip()]);
         }
@@ -85,6 +86,8 @@ class CheckinController extends Controller
         $name = trim((string) ($ticket->first_name . ' ' . $ticket->last_name));
         $name = $name !== '' ? $name : ($ticket->email ?? 'Unknown');
 
+        $isEarlyBird = is_string($ticket->ticket_type) && strcasecmp($ticket->ticket_type, 'Early Bird') === 0;
+
         // A registration record linked to this ticket means the guest gets a drink.
         // Some code paths store the local tickets.id in registrations.eventbrite_ticket_id,
         // others may store the external Eventbrite ticket id. Check both to be safe.
@@ -94,6 +97,20 @@ class CheckinController extends Controller
                   ->orWhere('eventbrite_ticket_id', $ticket->eventbrite_ticket_id);
             })
             ->exists();
+
+        // Require explicit confirmation before checking in Early Bird tickets (only if not already redeemed)
+        if ($isEarlyBird && !$proceedEarlyBird && !$ticket->isRedeemed()) {
+            return response()->json([
+                'ok' => true,
+                'status' => 'early_bird_confirm',
+                'name' => $name,
+                'email' => $ticket->email,
+                'ticket_id' => $ticket->eventbrite_ticket_id,
+                'barcode_id' => $ticket->barcode_id,
+                'ticket_type' => $ticket->ticket_type,
+                'drink_eligible' => $drinkEligible,
+            ]);
+        }
 
         $alreadyRedeemed = $ticket->isRedeemed();
         if (!$alreadyRedeemed) {
@@ -124,6 +141,7 @@ class CheckinController extends Controller
             'barcode_id' => $ticket->barcode_id,
             'redeemed_at' => optional($ticket->redeemed_at)->toIso8601String(),
             'drink_eligible' => $drinkEligible,
+                'ticket_type' => $ticket->ticket_type,
             ]);
     }
 

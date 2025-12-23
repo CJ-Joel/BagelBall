@@ -372,7 +372,8 @@
       return String(s).replace(/[&<>\"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]));
     }
 
-    async function lookup(barcode) {
+    async function lookup(barcode, options = {}) {
+      const { proceedEarlyBird = false, skipDedupe = false } = options;
       const now = Date.now();
       // Prevent write operations when read-only is active
       if (serverReadOnly || state.uiReadOnly) {
@@ -381,7 +382,7 @@
         return;
       }
       const last = state.dedupe.get(barcode);
-      if (last && (now - last) < 1500) return;
+      if (!skipDedupe && last && (now - last) < 1500) return;
       state.dedupe.set(barcode, now);
 
       setStatus('Looking up…', null);
@@ -399,7 +400,7 @@
       const res = await fetch(scanUrl, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ barcode }),
+        body: JSON.stringify({ barcode, proceed_early_bird: proceedEarlyBird }),
         // Include credentials so browser-supplied HTTP Basic auth is sent with the AJAX request.
         // This lets server-level basic auth (if enabled for /checkin) succeed for the POST.
         credentials: 'same-origin'
@@ -414,6 +415,22 @@
         } else {
           setStatus('Error', 'bad');
         }
+        beep(false);
+        flashScreen(false);
+        return;
+      }
+
+      if (data.status === 'early_bird_confirm') {
+        const proceed = confirm('NOTE: This ticket is early bird. Do you want to proceed?');
+        if (proceed) {
+          state.dedupe.delete(barcode);
+          return lookup(barcode, { proceedEarlyBird: true, skipDedupe: true });
+        }
+        setStatus('Early bird canceled', 'warn');
+        els.lastName.textContent = '—';
+        els.drinkBadge.style.display = 'none';
+        els.resultCard.style.display = 'none';
+        addLogItem({ name: data.name || 'Unknown', status: 'early_bird_cancelled', barcode, drinkEligible: !!data.drink_eligible });
         beep(false);
         flashScreen(false);
         return;

@@ -223,6 +223,7 @@ class EventbriteWebhookController extends Controller
                 'first_name' => $profile['first_name'] ?? $attendee['first_name'] ?? null,
                 'last_name' => $profile['last_name'] ?? $attendee['last_name'] ?? null,
                 'email' => $profile['email'] ?? $attendee['email'] ?? null,
+                'ticket_type' => $this->extractTicketType($attendee),
                 'order_date' => $orderDate,
                 'barcode_id' => $this->extractBarcodeId($attendee),
                 'gender' => $this->extractGender($attendee),
@@ -349,6 +350,27 @@ class EventbriteWebhookController extends Controller
 
             foreach (['gender_raw', 'sex'] as $k) {
                 if (!empty($profile[$k])) return $profile[$k];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Extract the Eventbrite ticket class name/id to store as ticket_type.
+     */
+    private function extractTicketType(array $attendee): ?string
+    {
+        $candidates = [
+            $attendee['ticket_class_name'] ?? null,
+            $attendee['ticket_class']['name'] ?? null,
+            $attendee['ticket_class_id'] ?? null,
+            $attendee['ticket_class']['id'] ?? null,
+        ];
+
+        foreach ($candidates as $candidate) {
+            if (is_string($candidate) && trim($candidate) !== '') {
+                return trim($candidate);
             }
         }
 
@@ -687,6 +709,7 @@ class EventbriteWebhookController extends Controller
                         'first_name' => $profile['first_name'] ?? $attendee['first_name'] ?? null,
                         'last_name' => $profile['last_name'] ?? $attendee['last_name'] ?? null,
                         'email' => $profile['email'] ?? $attendee['email'] ?? null,
+                        'ticket_type' => $this->extractTicketType($attendee),
                         'order_date' => $orderDate,
                         'barcode_id' => $this->extractBarcodeId($attendee),
                         'gender' => $this->extractGender($attendee),
