@@ -244,7 +244,7 @@
             btn.disabled = true;
             btn.textContent = 'Reversing...';
             const headers = { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf, 'Accept': 'application/json' };
-            if (checkinToken) { headers['X-CHECKIN-TOKEN'] = checkinToken; headers['Authorization'] = 'Bearer ' + checkinToken; }
+            if (checkinToken) { headers['X-CHECKIN-TOKEN'] = checkinToken; /* Do not set Authorization to avoid clobbering Basic auth */ }
             const res = await fetch(reverseUrl, {
               method: 'POST', headers, body: JSON.stringify({ barcode }), credentials: 'same-origin'
             });
@@ -392,9 +392,9 @@
         'X-CSRF-TOKEN': csrf,
         'Accept': 'application/json'
       };
-      if (checkinToken) {
-        headers['X-CHECKIN-TOKEN'] = checkinToken;
-        headers['Authorization'] = 'Bearer ' + checkinToken;
+      if (checkinToken) { 
+        headers['X-CHECKIN-TOKEN'] = checkinToken; 
+        // Avoid overriding any HTTP Basic auth by omitting Authorization: Bearer here.
       }
 
       const res = await fetch(scanUrl, {
