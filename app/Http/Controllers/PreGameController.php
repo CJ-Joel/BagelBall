@@ -9,7 +9,10 @@ class PreGameController extends Controller
     // List all pre-games
     public function index()
     {
-        $pregames = \App\Models\PreGame::orderBy('start_time')->get();
+        // Hide full pregames from the public list
+        $pregames = \App\Models\PreGame::orderBy('start_time')->get()->filter(function ($pregame) {
+            return !$pregame->isFull();
+        })->values();
         return view('pregames.index', compact('pregames'));
     }
 
