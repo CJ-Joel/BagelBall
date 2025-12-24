@@ -1,6 +1,6 @@
 @php
     // Set to true to enable the "Night of Operations" tab
-    $enableNightOfOpsTab = false;
+    $enableNightOfOpsTab = true;
 @endphp
 <!DOCTYPE html>
 <html lang="en">
