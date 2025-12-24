@@ -41,7 +41,7 @@ class CheckinController extends Controller
             return response()->json(['ok' => false, 'status' => 'read_only', 'message' => 'Check-in is read-only'], 423);
         }
         $barcode = trim((string) $request->input('barcode'));
-        $proceedEarlyBird = $request->boolean('proceed_early_bird', false);
+        $proceedWaitlist = $request->boolean('proceed_waitlist', false);
         if (config('app.debug')) {
             Log::debug('checkin.scan received', ['barcode' => $barcode, 'ip' => $request->ip()]);
         }
@@ -86,7 +86,7 @@ class CheckinController extends Controller
         $name = trim((string) ($ticket->first_name . ' ' . $ticket->last_name));
         $name = $name !== '' ? $name : ($ticket->email ?? 'Unknown');
 
-        $isEarlyBird = is_string($ticket->ticket_type) && strcasecmp($ticket->ticket_type, 'Early Bird') === 0;
+        $isWaitlist = is_string($ticket->ticket_type) && stripos($ticket->ticket_type, 'waitlist') !== false;
 
         // A registration record linked to this ticket means the guest gets a drink.
         // Some code paths store the local tickets.id in registrations.eventbrite_ticket_id,
@@ -98,11 +98,11 @@ class CheckinController extends Controller
             })
             ->exists();
 
-        // Require explicit confirmation before checking in Early Bird tickets (only if not already redeemed)
-        if ($isEarlyBird && !$proceedEarlyBird && !$ticket->isRedeemed()) {
+        // Require explicit confirmation before checking in waitlist tickets (only if not already redeemed)
+        if ($isWaitlist && !$proceedWaitlist && !$ticket->isRedeemed()) {
             return response()->json([
                 'ok' => true,
-                'status' => 'early_bird_confirm',
+            'status' => 'waitlist_confirm',
                 'name' => $name,
                 'email' => $ticket->email,
                 'ticket_id' => $ticket->eventbrite_ticket_id,

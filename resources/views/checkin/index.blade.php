@@ -373,7 +373,7 @@
     }
 
     async function lookup(barcode, options = {}) {
-      const { proceedEarlyBird = false, skipDedupe = false } = options;
+      const { proceedWaitlist = false, skipDedupe = false } = options;
       const now = Date.now();
       // Prevent write operations when read-only is active
       if (serverReadOnly || state.uiReadOnly) {
@@ -400,7 +400,7 @@
       const res = await fetch(scanUrl, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ barcode, proceed_early_bird: proceedEarlyBird }),
+        body: JSON.stringify({ barcode, proceed_waitlist: proceedWaitlist }),
         // Include credentials so browser-supplied HTTP Basic auth is sent with the AJAX request.
         // This lets server-level basic auth (if enabled for /checkin) succeed for the POST.
         credentials: 'same-origin'
@@ -420,17 +420,17 @@
         return;
       }
 
-      if (data.status === 'early_bird_confirm') {
-        const proceed = confirm('NOTE: This ticket is early bird. Do you want to proceed?');
+      if (data.status === 'waitlist_confirm') {
+        const proceed = confirm('This is a waitlist ticket with admission permitted based on capacity. Please confirm admission.');
         if (proceed) {
           state.dedupe.delete(barcode);
-          return lookup(barcode, { proceedEarlyBird: true, skipDedupe: true });
+          return lookup(barcode, { proceedWaitlist: true, skipDedupe: true });
         }
-        setStatus('Early bird canceled', 'warn');
+        setStatus('Waitlist admission canceled', 'warn');
         els.lastName.textContent = '—';
         els.drinkBadge.style.display = 'none';
         els.resultCard.style.display = 'none';
-        addLogItem({ name: data.name || 'Unknown', status: 'early_bird_cancelled', barcode, drinkEligible: !!data.drink_eligible });
+        addLogItem({ name: data.name || 'Unknown', status: 'waitlist_cancelled', barcode, drinkEligible: !!data.drink_eligible });
         beep(false);
         flashScreen(false);
         return;
